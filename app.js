@@ -802,12 +802,14 @@ function renderDashboard(triggerGemini = true) {
 
   const totalAlim = sumAbs(buckets.alimentaire);
   const totalBars = sumAbs(buckets.bars);
-  const totalExtras = sumAbs(buckets.extras);
-  const totalPersonalVariable = Math.round((totalAlim + totalBars + totalExtras) * 100) / 100;
+  const totalExtrasOnly = sumAbs(buckets.extras);
+  // L'argent des bars est compté dans les extras
+  const totalExtras = Math.round((totalExtrasOnly + totalBars) * 100) / 100;
+  const totalPersonalVariable = Math.round((totalAlim + totalExtras) * 100) / 100;
 
-  // First-half only (1st to 15th of the month) for the mid-month check!
+  // First-half only (1st to 15th of the month) for the mid-month check (Extras inclut les Bars)
   const firstHalfAlim = sumFirstHalf(buckets.alimentaire);
-  const firstHalfExtras = sumFirstHalf(buckets.extras);
+  const firstHalfExtras = Math.round((sumFirstHalf(buckets.extras) + sumFirstHalf(buckets.bars)) * 100) / 100;
 
   const {
     totalColocAdvanced,
@@ -859,7 +861,7 @@ function renderDashboard(triggerGemini = true) {
   // Whenever food is bought (totalAlim), it is subtracted directly from the 120 € food budget!
   const resteNourriture = Math.round((FOOD_PROVISION - totalAlim) * 100) / 100;
   const resteHorsNourriture = Math.round(
-    (MONTHLY_BASE_ALLOWANCE - FIXED_CHARGES_TOTAL - FOOD_PROVISION + extraGains - totalBars - totalExtras) * 100
+    (MONTHLY_BASE_ALLOWANCE - FIXED_CHARGES_TOTAL - FOOD_PROVISION + extraGains - totalExtras) * 100
   ) / 100;
 
   const elReste2 = $("val-reste-moins-100");
@@ -1030,6 +1032,8 @@ function sendMidMonthMailto() {
       if (isFirstHalf) firstHalfAlim += Math.abs(tx.amount);
     } else if (b === BUCKETS.BARS) {
       bars += Math.abs(tx.amount);
+      extras += Math.abs(tx.amount);
+      if (isFirstHalf) firstHalfExtras += Math.abs(tx.amount);
     } else if (b === BUCKETS.EXTRAS) {
       extras += Math.abs(tx.amount);
       if (isFirstHalf) firstHalfExtras += Math.abs(tx.amount);
@@ -1041,7 +1045,7 @@ function sendMidMonthMailto() {
   }
 
   const { colocOwed, extraGains } = analyzeInflowsAndColocDebt(inflows, colocTxs);
-  const reste1 = MONTHLY_BASE_ALLOWANCE - FIXED_CHARGES_TOTAL + extraGains - (alim + bars + extras);
+  const reste1 = MONTHLY_BASE_ALLOWANCE - FIXED_CHARGES_TOTAL + extraGains - (alim + extras);
   const resteNourriture = FOOD_PROVISION - alim;
   const alimOk = firstHalfAlim <= MID_MONTH_LIMIT_ALIM;
   const extrasOk = firstHalfExtras <= MID_MONTH_LIMIT_EXTRAS;
