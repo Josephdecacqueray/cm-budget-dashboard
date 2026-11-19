@@ -1,42 +1,143 @@
 "use strict";
 
-const CATEGORIES = [
-  "Salaire & Revenus Pro",
-  "Aides & Remboursements",
-  "Intérêts & Dividendes",
-  "Virements reçus",
-  "Autres gains",
-  "Logement & Charges",
-  "Alimentation & Courses",
-  "Restaurants & Cafés",
-  "Transports & Auto",
-  "Télécoms & Abonnements",
-  "Santé",
-  "Impôts & Administration",
-  "Banque & Assurances",
-  "Shopping & Loisirs",
-  "Retraits DAB",
-  "Épargne & Investissements",
-  "Virements émis",
-  "Autres dépenses",
+const MONTHLY_BASE_ALLOWANCE = 200.0;
+const FIXED_CHARGES_TOTAL = 60.23; // 4 + 3 + 5.49 + 17.74 + 10 + 10 + 10
+const FOOD_PROVISION = 100.0;
+const MID_MONTH_LIMIT_ALIM = 50.0;
+const MID_MONTH_LIMIT_EXTRAS = 25.0;
+
+const BUCKETS = {
+  ALIMENTAIRE: "alimentaire",
+  BARS: "bars",
+  EXTRAS: "extras",
+  ABONNEMENT: "abonnement",
+  GAIN: "gain",
+};
+
+const BUCKET_LABELS = {
+  alimentaire: "Dépenses alimentaires",
+  bars: "Bars",
+  extras: "Extras",
+  abonnement: "Abonnements fixes (60,23 €)",
+};
+
+const FIXED_SUB_RULES = [
+  { amount: 4.0, keywords: ["apple.com/bill", "itunes", "apple music"] },
+  { amount: 3.0, keywords: ["free mobile", "free telecom", "bouygues", "sosh", "orange", "sfr", "red by sfr", "b&you", "prixtel"] },
+  { amount: 5.49, keywords: ["google one", "google*google", "g.co/helppay", "google storage", "google play"] },
+  { amount: 17.74, keywords: ["velib", "smovengo"] },
+  { amount: 10.0, keywords: ["tirelire", "vir livret", "virement livret", "epargne"] },
+  { amount: 10.0, keywords: ["coloc"] },
 ];
 
-const PALETTE = [
-  "#0071e3",
-  "#ff3b30",
-  "#34c759",
-  "#ff9500",
-  "#af52de",
-  "#ff2d55",
-  "#5ac8fa",
-  "#ffcc00",
-  "#5856d6",
-  "#8e8e93",
+const BARS_KEYWORDS = [
+  " bar ",
+  "le bar",
+  "pub ",
+  " pub ",
+  "brasserie",
+  "bistro",
+  "comptoir",
+  "taverne",
+  "guinguette",
+  "cave ",
+  "beer",
+  "biere",
+  "cocktail",
+  "lounge",
+  "club ",
+  "discotheque",
+  "cabaret",
+  "tapas",
+  "bodega",
+  "chupitos",
+  "delirium",
+  "frog ",
+  "3 brasseurs",
+  "au fut",
+  "guinness",
+  "irish",
+  "rooftop",
+  "cafe ",
+  "starbucks",
+  "columbus",
+  "nicolas ",
+];
+
+const ALIMENTAIRE_KEYWORDS = [
+  "carrefour",
+  "leclerc",
+  "auchan",
+  "intermarche",
+  "super u",
+  "hyper u",
+  "u express",
+  "utile ",
+  "monoprix",
+  "monop'",
+  "monop ",
+  "franprix",
+  "lidl",
+  "aldi",
+  "picard",
+  "grand frais",
+  "biocoop",
+  "naturalia",
+  "casino",
+  "spar ",
+  "vival",
+  "proxi",
+  "coccinelle",
+  "g20 ",
+  "cora ",
+  "match ",
+  "boulangerie",
+  "patisserie",
+  "boucherie",
+  "fromagerie",
+  "epicerie",
+  "primeur",
+  "marche ",
+  "crous",
+  "izly",
+  "resto u",
+  "mcdonald",
+  "mcdo",
+  "burger king",
+  "kfc",
+  "subway",
+  "five guys",
+  "o'tacos",
+  "otacos",
+  "kebab",
+  "pizza",
+  "dominos",
+  "sushi",
+  "pokawa",
+  "poke ",
+  "pret a manger",
+  "paul ",
+  "brioche doree",
+  "mie caline",
+  "marie blachere",
+  "uber eats",
+  "ubereats",
+  "deliveroo",
+  "just eat",
+  "too good to go",
+  "alimentation",
+  "traiteur",
+  "superette",
+  "restaurant",
+  "resto ",
+  "cantine",
 ];
 
 const STORAGE_KEYS = {
   sessionPwd: "cm_dash_session_pwd",
-  catOverrides: "cm_dash_cat_overrides_v1",
+  learnedRules: "cm_ai_learned_rules_v2",
+  geminiCache: "cm_ai_gemini_cache_v2",
+  gainOverrides: "cm_gain_overrides_v1",
   ghConfig: "cm_dash_gh_cfg_v1",
 };
 
@@ -44,11 +145,14 @@ const state = {
   data: null,
   password: "",
   isDemo: false,
-  selectedAccountId: "all",
-  pageSize: 80,
-  visibleCount: 80,
-  catOverrides: loadJsonStorage(STORAGE_KEYS.catOverrides, {}),
-  ghConfig: loadJsonStorage(STORAGE_KEYS.ghConfig, detectDefaultGhConfig()),
+  selectedYm: new Date().toISOString().slice(0, 7),
+  mobileColFilter: "all",
+  learnedRules: loadJsonStorage(STORAGE_KEYS.learnedRules, {}),
+  geminiCache: loadJsonStorage(STORAGE_KEYS.geminiCache, {}),
+  gainOverrides: loadJsonStorage(STORAGE_KEYS.gainOverrides, {}),
+  ghConfig: loadJsonStorage(STORAGE_KEYS.ghConfig, detectDefaultConfig()),
+  geminiRunning: false,
+  toastTimer: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -62,42 +166,58 @@ function loadJsonStorage(key, fallback) {
   }
 }
 
-function detectDefaultGhConfig() {
+function saveJsonStorage(key, val) {
+  try {
+    localStorage.setItem(key, JSON.stringify(val));
+  } catch {
+    // Ignore storage quota issues
+  }
+}
+
+function detectDefaultConfig() {
   const hostMatch = window.location.hostname.match(/^([^.]+)\.github\.io$/i);
   return {
     owner: hostMatch ? hostMatch[1] : "Josephdecacqueray",
     syncRepo: "cm-budget-sync",
     pat: "",
+    geminiKey: "",
+    alertEmail: "joseph@decacqueray.fr",
   };
 }
 
-function formatCurrency(amount, currency = "EUR") {
+function formatCurrency(amount) {
   return new Intl.NumberFormat("fr-FR", {
     style: "currency",
-    currency,
+    currency: "EUR",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(amount || 0);
+}
+
+function formatShortDate(isoDate) {
+  if (!isoDate) return "";
+  const dt = new Date(`${isoDate}T12:00:00`);
+  if (Number.isNaN(dt.getTime())) return isoDate;
+  return dt.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+}
+
+function formatMonthTitle(ym) {
+  const [y, m] = (ym || "").split("-");
+  const dt = new Date(Number(y), Number(m) - 1, 1);
+  if (Number.isNaN(dt.getTime())) return ym;
+  return dt.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
 }
 
 function formatRelativeTime(isoString) {
   if (!isoString) return "jamais";
   const dt = new Date(isoString);
   if (Number.isNaN(dt.getTime())) return isoString;
-  const diffSec = Math.round((Date.now() - dt.getTime()) / 1000);
-  if (diffSec < 60) return "à l'instant";
-  const diffMin = Math.round(diffSec / 60);
+  const diffMin = Math.round((Date.now() - dt.getTime()) / 60000);
+  if (diffMin < 1) return "à l'instant";
   if (diffMin < 60) return `il y a ${diffMin} min`;
-  const diffHours = Math.round(diffMin / 60);
-  if (diffHours < 24) return `il y a ${diffHours} h`;
-  const diffDays = Math.round(diffHours / 24);
-  return `il y a ${diffDays} j`;
-}
-
-function formatDateFr(isoDate) {
-  if (!isoDate) return "";
-  const [y, m, d] = isoDate.split("-");
-  return y && m && d ? `${d}/${m}/${y}` : isoDate;
+  const diffH = Math.round(diffMin / 60);
+  if (diffH < 24) return `il y a ${diffH} h`;
+  return `il y a ${Math.round(diffH / 24)} j`;
 }
 
 function escapeHtml(str) {
@@ -107,6 +227,234 @@ function escapeHtml(str) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function normalizeText(text) {
+  const stripped = String(text || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9./'&+-]+/g, " ");
+  return ` ${stripped.trim().replace(/\s+/g, " ")} `;
+}
+
+function extractMerchantKey(label, raw = "") {
+  const source = (label || raw || "").trim();
+  let norm = normalizeText(source).trim();
+  norm = norm
+    .replace(/^(cb|carte|paiement|prlv|prelevement|vir|virement|sepa|inst|psc)\s+/i, "")
+    .replace(/\b\d{2}\/\d{2}(\/\d{2,4})?\b/g, " ")
+    .replace(/\bcarte\s+\d+\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return norm || source.toLowerCase();
+}
+
+function cleanDisplayLabel(label, raw = "") {
+  const src = (label || raw || "Opération").trim();
+  return src
+    .replace(/^(PAIEMENT\s+PSC|PAIEMENT\s+CB|CB|PRLV\s+SEPA|PRLV|VIR\s+SEPA|VIR\s+INST|VIR)\s+/i, "")
+    .replace(/\s+\d{2}\/\d{2}\s+CARTE\s+\d+.*$/i, "")
+    .trim() || src;
+}
+
+function isFixedSubscription(label, raw, amount) {
+  if (amount >= 0) return false;
+  const absAmt = Math.round(Math.abs(amount) * 100) / 100;
+  const hay = normalizeText(`${label} ${raw}`);
+  for (const rule of FIXED_SUB_RULES) {
+    if (rule.keywords.some((kw) => hay.includes(kw))) return true;
+    if (Math.abs(absAmt - rule.amount) <= 0.05 && [4.0, 5.49, 17.74].includes(rule.amount)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function classifyTransaction(tx) {
+  if (tx.amount > 0) return BUCKETS.GAIN;
+
+  const mKey = tx.merchant_key || extractMerchantKey(tx.label, tx.raw);
+
+  // 1. User learned rules (highest priority: permanent learning)
+  if (state.learnedRules[mKey]) {
+    return state.learnedRules[mKey];
+  }
+  const cloudRules = state.data?.learned_rules || {};
+  if (cloudRules[mKey]) {
+    return cloudRules[mKey];
+  }
+
+  // 2. Cached Gemini Pro result
+  if (state.geminiCache[mKey]) {
+    return state.geminiCache[mKey];
+  }
+
+  // 3. Server-side already classified in one of the 4 buckets
+  if ([BUCKETS.ALIMENTAIRE, BUCKETS.BARS, BUCKETS.EXTRAS, BUCKETS.ABONNEMENT].includes(tx.category)) {
+    if (tx.category !== BUCKETS.EXTRAS) {
+      return tx.category;
+    }
+  }
+
+  // 4. Fixed subscriptions check (60.23 EUR pack)
+  if (isFixedSubscription(tx.label, tx.raw, tx.amount)) {
+    return BUCKETS.ABONNEMENT;
+  }
+
+  // 5. Smart French keyword & legacy category mapping
+  const hay = normalizeText(`${tx.label} ${tx.raw} ${tx.category || ""}`);
+  if (BARS_KEYWORDS.some((kw) => hay.includes(kw))) {
+    return BUCKETS.BARS;
+  }
+  if (ALIMENTAIRE_KEYWORDS.some((kw) => hay.includes(kw)) || tx.category === "Alimentation & Courses") {
+    return BUCKETS.ALIMENTAIRE;
+  }
+  return BUCKETS.EXTRAS;
+}
+
+function learnTransactionBucket(tx, targetBucket) {
+  const mKey = tx.merchant_key || extractMerchantKey(tx.label, tx.raw);
+  if (!mKey) return;
+  state.learnedRules[mKey] = targetBucket;
+  saveJsonStorage(STORAGE_KEYS.learnedRules, state.learnedRules);
+  showToast(`« ${cleanDisplayLabel(tx.label)} » classé dans ${BUCKET_LABELS[targetBucket]} · L'IA s'en souviendra`);
+  renderDashboard();
+}
+
+function showToast(message) {
+  const toast = $("ai-toast");
+  toast.textContent = message;
+  toast.classList.remove("hidden");
+  clearTimeout(state.toastTimer);
+  state.toastTimer = setTimeout(() => {
+    toast.classList.add("hidden");
+  }, 3200);
+}
+
+async function runBrowserGeminiClassification(monthTxs) {
+  const apiKey = (state.ghConfig.geminiKey || "").trim();
+  if (!apiKey || state.geminiRunning) return;
+
+  const expenses = monthTxs.filter((tx) => {
+    if (tx.amount >= 0) return false;
+    const mKey = tx.merchant_key || extractMerchantKey(tx.label, tx.raw);
+    if (state.learnedRules[mKey] || state.geminiCache[mKey]) return false;
+    if (isFixedSubscription(tx.label, tx.raw, tx.amount)) return false;
+    return true;
+  });
+
+  if (!expenses.length) return;
+  state.geminiRunning = true;
+  $("ai-badge-text").textContent = "Gemini analyse…";
+
+  try {
+    const mergedLearned = { ...(state.data?.learned_rules || {}), ...state.learnedRules };
+    const learnedExamples =
+      Object.entries(mergedLearned)
+        .slice(0, 80)
+        .map(([m, b]) => `- ${m} -> ${b}`)
+        .join("\n") || "(Aucun exemple personnalisé)";
+
+    const systemInstruction =
+      "Tu classes les dépenses du compte courant d'un étudiant en France dans EXACTEMENT l'une de ces 4 catégories :\n" +
+      "- 'alimentaire' : courses, supermarchés, boulangeries, repas, fast-food, Uber Eats, Deliveroo, CROUS.\n" +
+      "- 'bars' : bars, pubs, cafés de sortie, bières, brasseries, soirées.\n" +
+      "- 'extras' : toutes les autres dépenses (shopping, train, loisirs, pharmacie, Amazon, divers).\n" +
+      "- 'abonnement' : uniquement Apple Music (4€), Forfait (3€), Google One (5.49€), Vélib (17.74€), Tirelire (10€), Coloc (10€).\n\n" +
+      "Exemples appris des corrections de l'utilisateur :\n" +
+      learnedExamples;
+
+    const inputItems = expenses.slice(0, 80).map((tx) => ({
+      id: tx.id,
+      merchant: extractMerchantKey(tx.label, tx.raw),
+      label: tx.label,
+      amount: Math.abs(tx.amount),
+    }));
+
+    const schema = {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              merchant: { type: "string" },
+              category: {
+                type: "string",
+                enum: [BUCKETS.ALIMENTAIRE, BUCKETS.BARS, BUCKETS.EXTRAS, BUCKETS.ABONNEMENT],
+              },
+            },
+            required: ["merchant", "category"],
+          },
+        },
+      },
+      required: ["items"],
+    };
+
+    const resp = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+      method: "POST",
+      headers: {
+        "x-goog-api-key": apiKey,
+        "Content-Type": "application/json",
+        "Api-Revision": "2026-05-20",
+      },
+      body: JSON.stringify({
+        model: "gemini-4-hydrogen",
+        system_instruction: systemInstruction,
+        input: JSON.stringify(inputItems),
+        store: false,
+        response_format: {
+          type: "text",
+          mime_type: "application/json",
+          schema,
+        },
+      }),
+    });
+
+    if (resp.ok) {
+      const payload = await resp.json();
+      let outputText = payload.output_text;
+      if (!outputText && Array.isArray(payload.steps)) {
+        for (let i = payload.steps.length - 1; i >= 0; i -= 1) {
+          const step = payload.steps[i];
+          if (step.type === "model_output" && Array.isArray(step.content)) {
+            const part = step.content.find((p) => p.type === "text" && p.text);
+            if (part) {
+              outputText = part.text;
+              break;
+            }
+          }
+        }
+      }
+      if (outputText) {
+        const parsed = JSON.parse(outputText);
+        let updated = false;
+        for (const item of parsed.items || []) {
+          if (item.merchant && BUCKET_LABELS[item.category]) {
+            state.geminiCache[item.merchant] = item.category;
+            updated = true;
+          }
+        }
+        if (updated) {
+          saveJsonStorage(STORAGE_KEYS.geminiCache, state.geminiCache);
+          renderDashboard(false);
+        }
+      }
+    }
+  } catch {
+    // Ignore transient network errors and fall back to local rules
+  } finally {
+    state.geminiRunning = false;
+    updateAiBadge();
+  }
+}
+
+function updateAiBadge() {
+  const learnedCount = Object.keys({ ...(state.data?.learned_rules || {}), ...state.learnedRules }).length;
+  $("ai-badge-text").textContent = learnedCount > 0 ? `Gemini · ${learnedCount} appris` : "Gemini Pro";
+  $("learned-count-label").textContent = `${learnedCount} commerçant(s) mémorisé(s) par l'IA`;
 }
 
 function base64ToBytes(b64) {
@@ -120,16 +468,10 @@ function base64ToBytes(b64) {
 
 async function decryptEnvelope(envelope, password) {
   if (!envelope || envelope.v !== 1 || envelope.kdf !== "PBKDF2-SHA256") {
-    throw new Error("Format de fichier chiffré non pris en charge.");
+    throw new Error("Format chiffré non supporté.");
   }
   const enc = new TextEncoder();
-  const baseKey = await window.crypto.subtle.importKey(
-    "raw",
-    enc.encode(password),
-    "PBKDF2",
-    false,
-    ["deriveKey"]
-  );
+  const baseKey = await window.crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]);
   const aesKey = await window.crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
@@ -143,10 +485,7 @@ async function decryptEnvelope(envelope, password) {
     ["decrypt"]
   );
   const plainBuf = await window.crypto.subtle.decrypt(
-    {
-      name: "AES-GCM",
-      iv: base64ToBytes(envelope.iv),
-    },
+    { name: "AES-GCM", iv: base64ToBytes(envelope.iv) },
     aesKey,
     base64ToBytes(envelope.ct)
   );
@@ -164,708 +503,379 @@ async function fetchJsonNoCache(url) {
   return resp.json();
 }
 
-function buildDemoData() {
-  const now = new Date();
-  const ym = (offsetMonths) => {
-    const d = new Date(now.getFullYear(), now.getMonth() - offsetMonths, 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-  };
-  const isoDay = (offsetMonths, day) => {
-    const d = new Date(now.getFullYear(), now.getMonth() - offsetMonths, Math.min(day, 28));
-    return d.toISOString().slice(0, 10);
-  };
-
-  const accounts = [
-    {
-      id: "demo-checking",
-      label: "Compte Courant Eurocompte",
-      number: "00012345601",
-      masked_iban: "FR76 •••• 4821",
-      group: "checking",
-      type_label: "Compte courant",
-      balance: 2845.6,
-      coming: -142.3,
-      currency: "EUR",
-    },
-    {
-      id: "demo-livret",
-      label: "Livret A",
-      number: "00012345602",
-      masked_iban: "FR76 •••• 9104",
-      group: "savings",
-      type_label: "Livret A",
-      balance: 8420.0,
-      coming: null,
-      currency: "EUR",
-    },
-    {
-      id: "demo-ldds",
-      label: "Livret Développement Durable",
-      number: "00012345603",
-      masked_iban: "FR76 •••• 3319",
-      group: "savings",
-      type_label: "LDDS",
-      balance: 3150.0,
-      coming: null,
-      currency: "EUR",
-    },
-  ];
-
-  const txs = [];
-  let seq = 1;
-  const addTx = (accId, d, label, amount, category, coming = false, type = "card") => {
-    txs.push({
-      id: `demo-${seq++}`,
-      account_id: accId,
-      date: d,
-      accounting_date: d,
-      label,
-      raw: label,
-      amount,
-      type,
-      is_card_summary: false,
-      coming,
-      category,
-    });
-  };
-
-  for (let m = 0; m < 6; m += 1) {
-    addTx("demo-checking", isoDay(m, 2), "VIR SALAIRE ENTREPRISE SAS", 2650.0, "Salaire & Revenus Pro", false, "transfer");
-    addTx("demo-checking", isoDay(m, 4), "PRLV LOYER RESIDENCE", -820.0, "Logement & Charges", false, "order");
-    addTx("demo-checking", isoDay(m, 6), "CB CARREFOUR MARKET", -(94.2 + m * 6), "Alimentation & Courses");
-    addTx("demo-checking", isoDay(m, 9), "PRLV EDF ELECTRICITE", -68.5, "Logement & Charges", false, "order");
-    addTx("demo-checking", isoDay(m, 11), "CB SNCF CONNECT", -(52.0 + m * 4), "Transports & Auto");
-    addTx("demo-checking", isoDay(m, 14), "CB BRASSERIE DU CENTRE", -(38.5 + (m % 3) * 9), "Restaurants & Cafés");
-    addTx("demo-checking", isoDay(m, 16), "PRLV ORANGE FIBRE", -34.99, "Télécoms & Abonnements", false, "order");
-    addTx("demo-checking", isoDay(m, 19), "CB PHARMACIE CENTRALE", -26.4, "Santé");
-    addTx("demo-checking", isoDay(m, 22), "CB LECLERC COURSES", -(118.4 + m * 5), "Alimentation & Courses");
-    addTx("demo-checking", isoDay(m, 24), "CB DECATHLON", -(45.0 + (m % 2) * 35), "Shopping & Loisirs");
-    if (m % 2 === 0) {
-      addTx("demo-checking", isoDay(m, 15), "VIR REMBOURSEMENT MUTUELLE", 64.5, "Aides & Remboursements", false, "payback");
-    }
-    addTx("demo-livret", isoDay(m, 5), "VIR EPARGNE MENSUELLE", 250.0, "Virements reçus", false, "transfer");
-  }
-
-  addTx("demo-checking", `${ym(0)}-${String(Math.min(now.getDate(), 28)).padStart(2, "0")}`, "CB BOULANGERIE ARTISANALE", -8.9, "Alimentation & Courses", true);
-  addTx("demo-checking", `${ym(0)}-${String(Math.min(now.getDate(), 28)).padStart(2, "0")}`, "CB AMAZON EU SARL", -49.9, "Shopping & Loisirs", true);
-
-  txs.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-
-  return {
-    schema_version: 1,
-    generated_at: now.toISOString(),
-    last_ok_at: now.toISOString(),
-    sync: {
-      status: "ok",
-      needs_2fa: false,
-      auth_error: false,
-      message: "Mode démonstration actif (données fictives)",
-    },
-    accounts,
-    transactions: txs,
-  };
+function getCheckingAccounts() {
+  const accounts = state.data?.accounts || [];
+  const checking = accounts.filter((a) => a.group === "checking");
+  return checking.length ? checking : accounts.slice(0, 1);
 }
 
-function getEffectiveCategory(tx) {
-  const key = (tx.raw || tx.label || "").trim().toUpperCase();
-  return state.catOverrides[key] || tx.category || (tx.amount > 0 ? "Autres gains" : "Autres dépenses");
-}
-
-function setCategoryOverride(tx, newCat) {
-  const key = (tx.raw || tx.label || "").trim().toUpperCase();
-  if (!key) return;
-  state.catOverrides[key] = newCat;
-  try {
-    localStorage.setItem(STORAGE_KEYS.catOverrides, JSON.stringify(state.catOverrides));
-  } catch {
-    // Ignore quota errors
-  }
-}
-
-function isInternalTransfer(tx) {
-  const cat = getEffectiveCategory(tx);
-  const label = `${tx.label || ""} ${tx.raw || ""}`.toLowerCase();
-  return (
-    cat === "Virements internes" ||
-    cat === "Épargne & Investissements" ||
-    label.includes("virement interne") ||
-    label.includes("vir interne") ||
-    label.includes("epargne mensuelle")
-  );
-}
-
-function getPeriodCutoff(period) {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  if (period === "this_month") {
-    return {
-      start: `${y}-${String(m + 1).padStart(2, "0")}-01`,
-      end: "9999-12-31",
-      label: "ce mois-ci",
-    };
-  }
-  if (period === "last_month") {
-    const startDt = new Date(y, m - 1, 1);
-    const endDt = new Date(y, m, 0);
-    return {
-      start: startDt.toISOString().slice(0, 10),
-      end: endDt.toISOString().slice(0, 10),
-      label: "mois dernier",
-    };
-  }
-  if (period === "3m") {
-    const dt = new Date(y, m - 2, 1);
-    return { start: dt.toISOString().slice(0, 10), end: "9999-12-31", label: "3 mois" };
-  }
-  if (period === "12m") {
-    const dt = new Date(y, m - 11, 1);
-    return { start: dt.toISOString().slice(0, 10), end: "9999-12-31", label: "12 mois" };
-  }
-  return { start: "0000-01-01", end: "9999-12-31", label: "tout" };
-}
-
-function getFilteredTransactions({ ignoreFlowFilter = false, ignoreCategoryFilter = false } = {}) {
-  const txs = state.data?.transactions || [];
-  const search = ($("filter-search").value || "").trim().toLowerCase();
-  const period = $("filter-period").value;
-  const flow = $("filter-flow").value;
-  const catFilter = $("filter-category").value;
-  const includeComing = $("toggle-coming").checked;
-  const excludeSummary = $("toggle-exclude-summary").checked;
-  const excludeInternal = $("toggle-exclude-internal").checked;
-  const { start, end } = getPeriodCutoff(period);
-
-  return txs.filter((tx) => {
-    if (state.selectedAccountId !== "all" && tx.account_id !== state.selectedAccountId) return false;
-    if (!includeComing && tx.coming) return false;
-    if (excludeSummary && tx.is_card_summary) return false;
-    if (excludeInternal && isInternalTransfer(tx)) return false;
-    if (tx.date < start || tx.date > end) return false;
-
-    const effCat = getEffectiveCategory(tx);
-    if (!ignoreCategoryFilter && catFilter !== "all" && effCat !== catFilter) return false;
-
-    if (!ignoreFlowFilter) {
-      if (flow === "expense" && tx.amount >= 0) return false;
-      if (flow === "income" && tx.amount <= 0) return false;
-      if (flow === "coming" && !tx.coming) return false;
-    }
-
-    if (search) {
-      const hay = `${tx.label} ${tx.raw} ${effCat} ${tx.amount}`.toLowerCase();
-      if (!hay.includes(search)) return false;
-    }
-    return true;
+function getMonthCheckingTransactions(ym) {
+  const checkingIds = new Set(getCheckingAccounts().map((a) => a.id));
+  const allTxs = state.data?.transactions || [];
+  return allTxs.filter((tx) => {
+    if (checkingIds.size && !checkingIds.has(tx.account_id)) return false;
+    if (tx.is_card_summary) return false;
+    return String(tx.date || "").startsWith(ym);
   });
 }
 
-function renderSyncStatus() {
-  const data = state.data;
-  const sync = data.sync || {};
+function pickInitialMonth() {
+  const nowYm = new Date().toISOString().slice(0, 7);
+  const currentTxs = getMonthCheckingTransactions(nowYm);
+  if (currentTxs.length > 0) return nowYm;
+  const checkingIds = new Set(getCheckingAccounts().map((a) => a.id));
+  const firstTx = (state.data?.transactions || []).find((t) => !checkingIds.size || checkingIds.has(t.account_id));
+  return firstTx && firstTx.date ? firstTx.date.slice(0, 7) : nowYm;
+}
+
+function stepMonth(delta) {
+  const [y, m] = state.selectedYm.split("-").map(Number);
+  const dt = new Date(y, m - 1 + delta, 1);
+  state.selectedYm = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+  renderDashboard();
+}
+
+function computeGains(inflowTxs) {
+  // Identify which inflow is the 200 EUR base allowance vs extra gains
+  let autoBaseId = null;
+  for (const tx of inflowTxs) {
+    const override = state.gainOverrides[tx.id];
+    if (override === "base") {
+      autoBaseId = tx.id;
+      break;
+    }
+  }
+  if (!autoBaseId) {
+    const candidate = inflowTxs.find(
+      (tx) => state.gainOverrides[tx.id] !== "extra" && Math.abs(tx.amount - MONTHLY_BASE_ALLOWANCE) <= 5.0
+    );
+    if (candidate) autoBaseId = candidate.id;
+  }
+
+  let extraGains = 0;
+  const items = inflowTxs.map((tx) => {
+    const isBase = state.gainOverrides[tx.id]
+      ? state.gainOverrides[tx.id] === "base"
+      : tx.id === autoBaseId;
+    if (!isBase) {
+      extraGains += tx.amount;
+    }
+    return { tx, isBase };
+  });
+
+  return { extraGains: Math.round(extraGains * 100) / 100, items };
+}
+
+function renderExpenseCard(tx, currentBucket) {
+  const mKey = tx.merchant_key || extractMerchantKey(tx.label, tx.raw);
+  const isLearned = Boolean(state.learnedRules[mKey] || state.data?.learned_rules?.[mKey]);
+  const comingTag = tx.coming ? ` · À venir` : "";
+  const learnedTag = isLearned ? `<span class="learned-badge" title="Mémorisé par l'IA">✦ Appris</span>` : "";
+
+  const targets = [
+    { key: BUCKETS.ALIMENTAIRE, short: "Alim" },
+    { key: BUCKETS.BARS, short: "Bars" },
+    { key: BUCKETS.EXTRAS, short: "Extras" },
+    { key: BUCKETS.ABONNEMENT, short: "Abo" },
+  ].filter((t) => t.key !== currentBucket);
+
+  const buttonsHtml = targets
+    .map(
+      (t) =>
+        `<button type="button" class="move-btn" data-tx-id="${escapeHtml(tx.id)}" data-target="${t.key}" title="Déplacer vers ${escapeHtml(BUCKET_LABELS[t.key])}">→ ${t.short}</button>`
+    )
+    .join("");
+
+  return `
+    <li class="expense-item" draggable="true" data-tx-id="${escapeHtml(tx.id)}">
+      <div class="expense-row-top">
+        <span class="expense-name">${escapeHtml(cleanDisplayLabel(tx.label, tx.raw))}</span>
+        <span class="expense-amount">${escapeHtml(formatCurrency(Math.abs(tx.amount)))}</span>
+      </div>
+      <div class="expense-row-bottom">
+        <span class="expense-meta">${escapeHtml(formatShortDate(tx.date))}${comingTag} ${learnedTag}</span>
+        <div class="move-pills">${buttonsHtml}</div>
+      </div>
+    </li>
+  `;
+}
+
+function renderDashboard(triggerGemini = true) {
+  if (!state.data) return;
+
+  updateAiBadge();
+  $("current-month-label").textContent = formatMonthTitle(state.selectedYm);
+  $("demo-badge").classList.toggle("hidden", !state.isDemo);
+
+  // Sync status
+  const sync = state.data.sync || {};
   const dot = $("sync-dot");
-  const text = $("sync-status-text");
-  const banner = $("sync-alert-banner");
-  const alertTitle = $("sync-alert-title");
-  const alertMsg = $("sync-alert-message");
-  const alertLink = $("alert-gh-link");
-  const trigger2faBtn = $("trigger-2fa-btn");
+  const statusText = $("sync-status-text");
+  const alertBanner = $("sync-alert-banner");
+  dot.className = "status-dot";
+  alertBanner.classList.add("hidden");
 
-  const actionsUrl = `https://github.com/${encodeURIComponent(state.ghConfig.owner)}/${encodeURIComponent(state.ghConfig.syncRepo)}/actions`;
-  alertLink.href = actionsUrl;
-
-  dot.className = "dot";
-  banner.classList.add("hidden");
-  banner.classList.remove("error");
-  trigger2faBtn.classList.toggle("hidden", !state.ghConfig.pat);
-
-  const rel = formatRelativeTime(data.last_ok_at || data.generated_at);
+  const rel = formatRelativeTime(state.data.last_ok_at || state.data.generated_at);
   if (sync.status === "ok") {
     dot.classList.add("ok");
-    text.textContent = `Dernière synchro réussie : ${rel}`;
+    statusText.textContent = `Synchro ${rel}`;
   } else if (sync.status === "needs_2fa") {
     dot.classList.add("warn");
-    text.textContent = `Validation 2FA requise • Dernières données : ${rel}`;
-    banner.classList.remove("hidden");
-    alertTitle.textContent = "Validation mobile Crédit Mutuel requise (2FA)";
-    alertMsg.textContent = sync.message || "Lance le workflow en mode interactive_2fa et confirme sur ton téléphone.";
-  } else if (sync.status === "auth_error" || sync.status === "error") {
-    dot.classList.add("err");
-    text.textContent = `Erreur de synchro • Dernières données : ${rel}`;
-    banner.classList.remove("hidden");
-    banner.classList.add("error");
-    alertTitle.textContent = sync.status === "auth_error" ? "Erreur d'identifiants" : "Erreur de synchronisation";
-    alertMsg.textContent = sync.message || "Vérifie le workflow GitHub Actions.";
+    statusText.textContent = "2FA requise";
+    alertBanner.classList.remove("hidden");
+    $("sync-alert-title").textContent = "Confirmation Mobile Crédit Mutuel requise";
+    $("sync-alert-message").textContent = sync.message || "Relance une synchro 2FA pour actualiser la session.";
   } else {
-    text.textContent = `Statut : ${sync.status || "inconnu"} (${rel})`;
+    dot.classList.add("err");
+    statusText.textContent = "Erreur synchro";
   }
 
-  $("demo-badge").classList.toggle("hidden", !state.isDemo);
-}
+  $("alert-gh-link").href = `https://github.com/${encodeURIComponent(state.ghConfig.owner)}/${encodeURIComponent(state.ghConfig.syncRepo)}/actions`;
+  $("trigger-2fa-btn").classList.toggle("hidden", !state.ghConfig.pat);
 
-function renderKPIs(periodTxs) {
-  const accounts = state.data.accounts || [];
-  let checkingTotal = 0;
-  let savingsTotal = 0;
-  let comingTotal = 0;
-  let hasComing = false;
+  // Checking account balance
+  const checkingAccs = getCheckingAccounts();
+  const bankBalance = checkingAccs.reduce((s, a) => s + (a.balance || 0), 0);
+  $("bank-balance-pill").textContent = `Solde Compte Courant : ${formatCurrency(bankBalance)}`;
 
-  for (const acc of accounts) {
-    if (acc.group === "checking") {
-      checkingTotal += acc.balance || 0;
-    } else if (acc.group === "savings" || acc.group === "investment") {
-      savingsTotal += acc.balance || 0;
-    }
-    if (typeof acc.coming === "number") {
-      comingTotal += acc.coming;
-      hasComing = true;
-    }
+  // Filter current month checking transactions
+  const monthTxs = getMonthCheckingTransactions(state.selectedYm);
+  const txById = new Map(monthTxs.map((t) => [t.id, t]));
+
+  const buckets = {
+    alimentaire: [],
+    bars: [],
+    extras: [],
+    abonnement: [],
+    gain: [],
+  };
+
+  for (const tx of monthTxs) {
+    const b = classifyTransaction(tx);
+    buckets[b].push(tx);
   }
 
-  const pendingTxsSum = (state.data.transactions || [])
-    .filter((t) => t.coming)
-    .reduce((sum, t) => sum + (t.amount || 0), 0);
-  const displayComing = hasComing ? comingTotal : pendingTxsSum;
+  const sumAbs = (arr) => Math.round(arr.reduce((s, t) => s + Math.abs(t.amount || 0), 0) * 100) / 100;
+  const totalAlim = sumAbs(buckets.alimentaire);
+  const totalBars = sumAbs(buckets.bars);
+  const totalExtras = sumAbs(buckets.extras);
+  const totalVariable = Math.round((totalAlim + totalBars + totalExtras) * 100) / 100;
 
-  let income = 0;
-  let incomeCount = 0;
-  let expense = 0;
-  let expenseCount = 0;
+  const { extraGains, items: gainItems } = computeGains(buckets.gain);
 
-  for (const tx of periodTxs) {
-    if (tx.amount > 0) {
-      income += tx.amount;
-      incomeCount += 1;
-    } else if (tx.amount < 0) {
-      expense += Math.abs(tx.amount);
-      expenseCount += 1;
-    }
-  }
+  // SECTION 1 : Reste sans les abonnements et les dépenses
+  // 200 € - 60.23 € (abonnements fixes) - dépenses du mois + gains supplémentaires
+  const resteSansAbonnements = Math.round((MONTHLY_BASE_ALLOWANCE - FIXED_CHARGES_TOTAL + extraGains - totalVariable) * 100) / 100;
+  const elReste1 = $("val-reste-principal");
+  elReste1.textContent = formatCurrency(resteSansAbonnements);
+  elReste1.className = `hero-amount ${resteSansAbonnements >= 0 ? "positive-val" : "negative-val"}`;
 
-  const net = income - expense;
-  const savingsRate = income > 0 ? Math.round((net / income) * 100) : 0;
-  const periodInfo = getPeriodCutoff($("filter-period").value);
+  const gainPart = extraGains > 0 ? ` + ${formatCurrency(extraGains)} de gains` : "";
+  $("sub-reste-principal").textContent = `200,00 € − 60,23 € d'abonnements − ${formatCurrency(totalVariable)} dépensés${gainPart}`;
 
-  $("kpi-checking").textContent = formatCurrency(checkingTotal);
-  $("kpi-coming").textContent = displayComing !== 0
-    ? `À venir : ${formatCurrency(displayComing)}`
-    : "Aucune opération à venir";
+  // SECTION 2 : Ce qu'il reste moins 100 € (budget nourriture prévu)
+  const resteMoins100 = Math.round((resteSansAbonnements - FOOD_PROVISION) * 100) / 100;
+  const foodEnvelopeLeft = Math.round(Math.max(0, FOOD_PROVISION - totalAlim) * 100) / 100;
+  const libreHorsNourriture = Math.round((MONTHLY_BASE_ALLOWANCE - FIXED_CHARGES_TOTAL - FOOD_PROVISION + extraGains - totalBars - totalExtras - Math.max(0, totalAlim - FOOD_PROVISION)) * 100) / 100;
 
-  $("kpi-savings").textContent = formatCurrency(savingsTotal);
-  $("kpi-patrimony").textContent = `Patrimoine liquide : ${formatCurrency(checkingTotal + savingsTotal)}`;
+  const elReste2 = $("val-reste-moins-100");
+  elReste2.textContent = formatCurrency(resteMoins100);
+  elReste2.className = `hero-amount secondary-amount ${resteMoins100 >= 0 ? "positive-val" : "negative-val"}`;
+  $("sub-reste-moins-100").textContent = `Reste libre hors les 100 € de nourriture : ${formatCurrency(libreHorsNourriture)}`;
 
-  $("kpi-income-label").textContent = `Gains (${periodInfo.label})`;
-  $("kpi-income").textContent = `+${formatCurrency(income)}`;
-  $("kpi-income-count").textContent = `${incomeCount} entrée(s)`;
+  $("val-food-envelope-left").textContent = `${formatCurrency(foodEnvelopeLeft)} restants sur 100 €`;
+  const foodPct = Math.min(100, Math.round((totalAlim / FOOD_PROVISION) * 100));
+  const barEl = $("food-progress-bar");
+  barEl.style.width = `${foodPct}%`;
+  barEl.classList.toggle("over", totalAlim > FOOD_PROVISION);
 
-  $("kpi-expense-label").textContent = `Dépenses (${periodInfo.label})`;
-  $("kpi-expense").textContent = `-${formatCurrency(expense)}`;
-  $("kpi-expense-count").textContent = `${expenseCount} sortie(s)`;
+  // Mid-month status (15th of the month rules: Alimentaire <= 50 €, Extras <= 25 €)
+  const alimMidOk = totalAlim <= MID_MONTH_LIMIT_ALIM;
+  const extrasMidOk = totalExtras <= MID_MONTH_LIMIT_EXTRAS;
+  const midAllOk = alimMidOk && extrasMidOk;
 
-  const netEl = $("kpi-net");
-  netEl.textContent = `${net >= 0 ? "+" : ""}${formatCurrency(net)}`;
-  netEl.className = `kpi-value ${net >= 0 ? "positive" : "negative"}`;
-  $("kpi-savings-rate").textContent = income > 0
-    ? `Taux d'épargne : ${savingsRate} %`
-    : "Taux d'épargne : —";
-}
+  $("midmonth-dot").className = `status-dot ${midAllOk ? "ok" : "warn"}`;
+  $("midmonth-title").textContent = midAllOk
+    ? "Bilan mi-mois : Tu es bon niveau dépenses !"
+    : "Bilan mi-mois : Seuil de moitié de mois dépassé";
+  $("midmonth-desc").textContent = `Alimentaire : ${formatCurrency(totalAlim)} / 50 € · Extras : ${formatCurrency(totalExtras)} / 25 €`;
 
-function renderAccounts() {
-  const grid = $("accounts-grid");
-  const accounts = state.data.accounts || [];
-  $("clear-account-filter").classList.toggle("hidden", state.selectedAccountId === "all");
+  const tagAlim = $("tag-limit-alim");
+  tagAlim.textContent = `${formatCurrency(totalAlim)} / 50 € mi-mois`;
+  tagAlim.className = `col-limit-tag ${alimMidOk ? "" : "over"}`;
 
-  if (!accounts.length) {
-    grid.innerHTML = `<p class="muted-small">Aucun compte synchronisé pour le moment.</p>`;
-    return;
-  }
+  const tagExtras = $("tag-limit-extras");
+  tagExtras.textContent = `${formatCurrency(totalExtras)} / 25 € mi-mois`;
+  tagExtras.className = `col-limit-tag ${extrasMidOk ? "" : "over"}`;
 
-  grid.innerHTML = accounts
-    .map((acc) => {
-      const activeClass = state.selectedAccountId === acc.id ? "active" : "";
-      const comingHtml =
-        typeof acc.coming === "number" && acc.coming !== 0
-          ? `<div class="account-coming">À venir : ${escapeHtml(formatCurrency(acc.coming, acc.currency))}</div>`
-          : "";
-      return `
-        <button type="button" class="account-card ${activeClass}" data-account-id="${escapeHtml(acc.id)}">
-          <div class="account-top">
-            <span class="account-type">${escapeHtml(acc.type_label || acc.group)}</span>
-            <span class="account-iban">${escapeHtml(acc.masked_iban || acc.number || "")}</span>
-          </div>
-          <div class="account-name" title="${escapeHtml(acc.label)}">${escapeHtml(acc.label)}</div>
-          <div class="account-balance">${escapeHtml(formatCurrency(acc.balance, acc.currency))}</div>
-          ${comingHtml}
+  // Gains strip
+  const gainsCard = $("gains-card");
+  if (gainItems.length > 0) {
+    gainsCard.classList.remove("hidden");
+    $("gains-list").innerHTML = gainItems
+      .map(
+        ({ tx, isBase }) => `
+        <button type="button" class="gain-pill ${isBase ? "is-base" : ""}" data-gain-id="${escapeHtml(tx.id)}">
+          <span>+${escapeHtml(formatCurrency(tx.amount))} · ${escapeHtml(cleanDisplayLabel(tx.label))}</span>
+          <span>(${isBase ? "200 € parents" : "+ Gain ajouté"})</span>
         </button>
-      `;
-    })
-    .join("");
-
-  grid.querySelectorAll(".account-card").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = btn.getAttribute("data-account-id");
-      state.selectedAccountId = state.selectedAccountId === id ? "all" : id;
-      state.visibleCount = state.pageSize;
-      renderDashboard();
+      `
+      )
+      .join("");
+    $("gains-list").querySelectorAll("[data-gain-id]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-gain-id");
+        const currentIsBase = btn.classList.contains("is-base");
+        state.gainOverrides[id] = currentIsBase ? "extra" : "base";
+        saveJsonStorage(STORAGE_KEYS.gainOverrides, state.gainOverrides);
+        renderDashboard(false);
+      });
     });
-  });
-}
-
-function renderMonthlyChart() {
-  const container = $("monthly-chart");
-  const txs = (state.data.transactions || []).filter((tx) => {
-    if (state.selectedAccountId !== "all" && tx.account_id !== state.selectedAccountId) return false;
-    if ($("toggle-exclude-summary").checked && tx.is_card_summary) return false;
-    if ($("toggle-exclude-internal").checked && isInternalTransfer(tx)) return false;
-    if (!$("toggle-coming").checked && tx.coming) return false;
-    return true;
-  });
-
-  const now = new Date();
-  const months = [];
-  for (let i = 5; i >= 0; i -= 1) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    const label = d.toLocaleDateString("fr-FR", { month: "short" });
-    months.push({ key, label, income: 0, expense: 0 });
-  }
-  const byKey = new Map(months.map((m) => [m.key, m]));
-
-  for (const tx of txs) {
-    const k = (tx.date || "").slice(0, 7);
-    const bucket = byKey.get(k);
-    if (!bucket) continue;
-    if (tx.amount > 0) bucket.income += tx.amount;
-    else if (tx.amount < 0) bucket.expense += Math.abs(tx.amount);
+  } else {
+    gainsCard.classList.add("hidden");
   }
 
-  const maxVal = Math.max(100, ...months.flatMap((m) => [m.income, m.expense]));
-  const w = 560;
-  const h = 230;
-  const padL = 52;
-  const padR = 14;
-  const padT = 18;
-  const padB = 34;
-  const plotW = w - padL - padR;
-  const plotH = h - padT - padB;
-  const groupW = plotW / months.length;
-  const barW = Math.min(26, groupW * 0.28);
+  // Render the 3 columns
+  $("total-alimentaire").textContent = formatCurrency(totalAlim);
+  $("total-bars").textContent = formatCurrency(totalBars);
+  $("total-extras").textContent = formatCurrency(totalExtras);
 
-  const gridLines = [0, 0.25, 0.5, 0.75, 1]
-    .map((ratio) => {
-      const y = padT + plotH * (1 - ratio);
-      const val = Math.round(maxVal * ratio);
-      return `
-        <line x1="${padL}" y1="${y}" x2="${w - padR}" y2="${y}" stroke="rgba(0,0,0,0.07)" stroke-dasharray="3 3" />
-        <text x="${padL - 8}" y="${y + 4}" text-anchor="end" fill="#86868b" font-size="10">${val >= 1000 ? `${(val / 1000).toFixed(1)}k` : val}</text>
-      `;
-    })
-    .join("");
+  const renderColList = (listId, arr, bucketKey) => {
+    const ul = $(listId);
+    if (!arr.length) {
+      ul.innerHTML = `<li class="empty-col">Aucune dépense ce mois-ci</li>`;
+      return;
+    }
+    ul.innerHTML = arr.map((tx) => renderExpenseCard(tx, bucketKey)).join("");
+  };
 
-  const bars = months
-    .map((m, idx) => {
-      const cx = padL + groupW * idx + groupW / 2;
-      const hInc = (m.income / maxVal) * plotH;
-      const hExp = (m.expense / maxVal) * plotH;
-      const yInc = padT + plotH - hInc;
-      const yExp = padT + plotH - hExp;
-      return `
-        <g>
-          <rect x="${cx - barW - 2}" y="${yInc}" width="${barW}" height="${Math.max(2, hInc)}" rx="6" fill="#34c759">
-            <title>${escapeHtml(m.label)} — Gains : ${escapeHtml(formatCurrency(m.income))}</title>
-          </rect>
-          <rect x="${cx + 2}" y="${yExp}" width="${barW}" height="${Math.max(2, hExp)}" rx="6" fill="#ff3b30">
-            <title>${escapeHtml(m.label)} — Dépenses : ${escapeHtml(formatCurrency(m.expense))}</title>
-          </rect>
-          <text x="${cx}" y="${h - 10}" text-anchor="middle" fill="#1d1d1f" font-size="11" font-weight="600">${escapeHtml(m.label)}</text>
-        </g>
-      `;
-    })
-    .join("");
+  renderColList("list-alimentaire", buckets.alimentaire, BUCKETS.ALIMENTAIRE);
+  renderColList("list-bars", buckets.bars, BUCKETS.BARS);
+  renderColList("list-extras", buckets.extras, BUCKETS.EXTRAS);
 
-  container.innerHTML = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Graphique gains et dépenses sur 6 mois">${gridLines}${bars}</svg>`;
-}
-
-function renderCategoryDonut(periodTxs) {
-  const donut = $("category-donut");
-  const legend = $("category-legend");
-  const totalLabel = $("category-total-label");
-
-  const totals = new Map();
-  let totalExpense = 0;
-  for (const tx of periodTxs) {
-    if (tx.amount >= 0) continue;
-    const cat = getEffectiveCategory(tx);
-    const val = Math.abs(tx.amount);
-    totals.set(cat, (totals.get(cat) || 0) + val);
-    totalExpense += val;
-  }
-
-  totalLabel.textContent = totalExpense > 0 ? formatCurrency(totalExpense) : "";
-
-  const entries = [...totals.entries()].sort((a, b) => b[1] - a[1]);
-  if (!entries.length) {
-    donut.innerHTML = `<svg viewBox="0 0 160 160"><circle cx="80" cy="80" r="56" fill="none" stroke="rgba(0,0,0,0.08)" stroke-width="22"/><text x="80" y="84" text-anchor="middle" fill="#86868b" font-size="12">Aucune dépense</text></svg>`;
-    legend.innerHTML = `<li class="muted-small">Aucune dépense sur cette période.</li>`;
-    return;
-  }
-
-  const r = 56;
-  const circ = 2 * Math.PI * r;
-  let offset = 0;
-
-  const segments = entries
-    .map(([cat, val], i) => {
-      const pct = val / totalExpense;
-      const dash = pct * circ;
-      const color = PALETTE[i % PALETTE.length];
-      const seg = `
-        <circle cx="80" cy="80" r="${r}" fill="none" stroke="${color}" stroke-width="22"
-          stroke-dasharray="${dash} ${circ - dash}" stroke-dashoffset="${-offset}" transform="rotate(-90 80 80)">
-          <title>${escapeHtml(cat)} : ${escapeHtml(formatCurrency(val))} (${Math.round(pct * 100)}%)</title>
-        </circle>
-      `;
-      offset += dash;
-      return seg;
-    })
-    .join("");
-
-  donut.innerHTML = `
-    <svg viewBox="0 0 160 160" role="img" aria-label="Répartition des dépenses">
-      ${segments}
-      <text x="80" y="76" text-anchor="middle" fill="#86868b" font-size="10">Total</text>
-      <text x="80" y="94" text-anchor="middle" fill="#1d1d1f" font-size="13" font-weight="600">${escapeHtml(formatCurrency(totalExpense))}</text>
-    </svg>
-  `;
-
-  legend.innerHTML = entries
-    .map(([cat, val], i) => {
-      const color = PALETTE[i % PALETTE.length];
-      const pct = Math.round((val / totalExpense) * 100);
-      return `
-        <li data-cat="${escapeHtml(cat)}" title="Filtrer par ${escapeHtml(cat)}">
-          <span class="cat-left">
-            <span class="cat-dot" style="background:${color}"></span>
-            <span class="cat-name">${escapeHtml(cat)}</span>
-          </span>
-          <span class="cat-amount">${escapeHtml(formatCurrency(val))} (${pct}%)</span>
-        </li>
-      `;
-    })
-    .join("");
-
-  legend.querySelectorAll("li[data-cat]").forEach((li) => {
-    li.addEventListener("click", () => {
-      const cat = li.getAttribute("data-cat");
-      $("filter-category").value = $("filter-category").value === cat ? "all" : cat;
-      state.visibleCount = state.pageSize;
-      renderDashboard();
-    });
-  });
-}
-
-function renderDailyCumulativeChart() {
-  const container = $("daily-chart");
-  const subtitle = $("daily-chart-subtitle");
-  const now = new Date();
-  const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const maxDay = now.getDate();
-
-  subtitle.textContent = now.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
-
-  const txs = (state.data.transactions || []).filter((tx) => {
-    if (state.selectedAccountId !== "all" && tx.account_id !== state.selectedAccountId) return false;
-    if (!tx.date || !tx.date.startsWith(ym)) return false;
-    if ($("toggle-exclude-summary").checked && tx.is_card_summary) return false;
-    if ($("toggle-exclude-internal").checked && isInternalTransfer(tx)) return false;
-    if (!$("toggle-coming").checked && tx.coming) return false;
-    return true;
+  // Mobile column visibility filter
+  [BUCKETS.ALIMENTAIRE, BUCKETS.BARS, BUCKETS.EXTRAS].forEach((b) => {
+    const colEl = $(`col-${b}`);
+    const hideOnMobile = state.mobileColFilter !== "all" && state.mobileColFilter !== b;
+    colEl.classList.toggle("hidden", hideOnMobile);
   });
 
-  const dailyInc = new Array(daysInMonth + 1).fill(0);
-  const dailyExp = new Array(daysInMonth + 1).fill(0);
-  for (const tx of txs) {
-    const day = Math.min(daysInMonth, Math.max(1, Number(tx.date.slice(8, 10)) || 1));
-    if (tx.amount > 0) dailyInc[day] += tx.amount;
-    else if (tx.amount < 0) dailyExp[day] += Math.abs(tx.amount);
-  }
-
-  const cumInc = [];
-  const cumExp = [];
-  let runInc = 0;
-  let runExp = 0;
-  for (let d = 1; d <= maxDay; d += 1) {
-    runInc += dailyInc[d];
-    runExp += dailyExp[d];
-    cumInc.push({ day: d, val: runInc });
-    cumExp.push({ day: d, val: runExp });
-  }
-
-  const maxVal = Math.max(100, runInc, runExp);
-  const w = 860;
-  const h = 190;
-  const padL = 52;
-  const padR = 18;
-  const padT = 16;
-  const padB = 28;
-  const plotW = w - padL - padR;
-  const plotH = h - padT - padB;
-
-  const toX = (d) => padL + ((d - 1) / Math.max(1, daysInMonth - 1)) * plotW;
-  const toY = (v) => padT + plotH - (v / maxVal) * plotH;
-
-  const poly = (pts) => pts.map((p) => `${toX(p.day).toFixed(1)},${toY(p.val).toFixed(1)}`).join(" ");
-  const grid = [0, 0.5, 1]
-    .map((r) => {
-      const y = padT + plotH * (1 - r);
-      const val = Math.round(maxVal * r);
-      return `
-        <line x1="${padL}" y1="${y}" x2="${w - padR}" y2="${y}" stroke="rgba(0,0,0,0.07)" stroke-dasharray="3 3" />
-        <text x="${padL - 8}" y="${y + 4}" text-anchor="end" fill="#86868b" font-size="10">${val} €</text>
-      `;
-    })
-    .join("");
-
-  const dayTicks = [1, 5, 10, 15, 20, 25, daysInMonth]
-    .map((d) => `<text x="${toX(d)}" y="${h - 8}" text-anchor="middle" fill="#86868b" font-size="10">${d}</text>`)
-    .join("");
-
-  container.innerHTML = `
-    <svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Cumul du mois en cours">
-      ${grid}
-      ${dayTicks}
-      <polyline fill="none" stroke="#34c759" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${poly(cumInc)}" />
-      <polyline fill="none" stroke="#ff3b30" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${poly(cumExp)}" />
-      <circle cx="${toX(maxDay)}" cy="${toY(runInc)}" r="4.5" fill="#34c759" stroke="#ffffff" stroke-width="2">
-        <title>Gains cumulés J${maxDay} : ${escapeHtml(formatCurrency(runInc))}</title>
-      </circle>
-      <circle cx="${toX(maxDay)}" cy="${toY(runExp)}" r="4.5" fill="#ff3b30" stroke="#ffffff" stroke-width="2">
-        <title>Dépenses cumulées J${maxDay} : ${escapeHtml(formatCurrency(runExp))}</title>
-      </circle>
-    </svg>
-  `;
-}
-
-function populateCategoryFilter() {
-  const select = $("filter-category");
-  const current = select.value;
-  const dynamicCats = new Set(CATEGORIES);
-  for (const tx of state.data.transactions || []) {
-    dynamicCats.add(getEffectiveCategory(tx));
-  }
-  const sorted = [...dynamicCats].sort((a, b) => a.localeCompare(b, "fr"));
-  select.innerHTML = `<option value="all">Toutes catégories</option>` + sorted.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
-  if ([...dynamicCats].includes(current)) {
-    select.value = current;
-  }
-}
-
-function renderTransactionsTable(filteredTxs) {
-  const tbody = $("tx-tbody");
-  const loadMoreBtn = $("load-more-btn");
-  $("tx-count").textContent = String(filteredTxs.length);
-
-  if (!filteredTxs.length) {
-    tbody.innerHTML = `<tr><td colspan="5" class="muted-small">Aucune opération ne correspond aux filtres sélectionnés.</td></tr>`;
-    loadMoreBtn.classList.add("hidden");
-    return;
-  }
-
-  const accById = new Map((state.data.accounts || []).map((a) => [a.id, a]));
-  const slice = filteredTxs.slice(0, state.visibleCount);
-  const allCats = [...new Set([...CATEGORIES, ...Object.values(state.catOverrides)])];
-
-  tbody.innerHTML = slice
-    .map((tx) => {
-      const acc = accById.get(tx.account_id);
-      const effCat = getEffectiveCategory(tx);
-      const amtClass = tx.amount >= 0 ? "positive" : "negative";
-      const sign = tx.amount > 0 ? "+" : "";
-      const comingBadge = tx.coming ? `<span class="badge badge-coming">À venir</span> ` : "";
-      const rawLine = tx.raw && tx.raw !== tx.label ? `<div class="tx-label-raw">${escapeHtml(tx.raw)}</div>` : "";
-      const optionsHtml = allCats
-        .map((c) => `<option value="${escapeHtml(c)}" ${c === effCat ? "selected" : ""}>${escapeHtml(c)}</option>`)
-        .join("");
-
-      return `
-        <tr>
-          <td>${escapeHtml(formatDateFr(tx.date))}</td>
-          <td>
-            <div class="tx-label-main">${comingBadge}${escapeHtml(tx.label)}</div>
-            ${rawLine}
-          </td>
-          <td>${escapeHtml(acc ? acc.label : tx.account_id)}</td>
-          <td>
-            <select class="cat-select" data-tx-id="${escapeHtml(tx.id)}" aria-label="Catégorie">
-              ${optionsHtml}
-            </select>
-          </td>
-          <td class="right ${amtClass}">${escapeHtml(sign + formatCurrency(tx.amount, acc?.currency || "EUR"))}</td>
-        </tr>
-      `;
-    })
-    .join("");
-
-  const txById = new Map(slice.map((t) => [t.id, t]));
-  tbody.querySelectorAll(".cat-select").forEach((sel) => {
-    sel.addEventListener("change", () => {
-      const tx = txById.get(sel.getAttribute("data-tx-id"));
-      if (tx) {
-        setCategoryOverride(tx, sel.value);
-        renderDashboard();
+  // Wire move buttons & drag-and-drop
+  document.querySelectorAll(".move-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const tx = txById.get(btn.getAttribute("data-tx-id"));
+      const target = btn.getAttribute("data-target");
+      if (tx && target) {
+        learnTransactionBucket(tx, target);
       }
     });
   });
 
-  loadMoreBtn.classList.toggle("hidden", filteredTxs.length <= state.visibleCount);
+  document.querySelectorAll(".expense-item[draggable='true']").forEach((li) => {
+    li.addEventListener("dragstart", (e) => {
+      e.dataTransfer.setData("text/plain", li.getAttribute("data-tx-id"));
+      e.dataTransfer.effectAllowed = "move";
+    });
+  });
+
+  // Detected fixed subscriptions drawer
+  const subsSection = $("detected-subs-section");
+  if (buckets.abonnement.length > 0) {
+    subsSection.classList.remove("hidden");
+    $("detected-subs-label").textContent = `Abonnements fixes détectés sur le compte et déjà inclus dans les 60,23 € (${buckets.abonnement.length})`;
+    $("detected-subs-list").innerHTML = buckets.abonnement
+      .map(
+        (tx) => `
+        <div class="detected-sub-pill">
+          <span>${escapeHtml(cleanDisplayLabel(tx.label))} · <strong>${escapeHtml(formatCurrency(Math.abs(tx.amount)))}</strong></span>
+          <button type="button" class="move-btn" data-sub-tx-id="${escapeHtml(tx.id)}" data-target="extras">Remettre dans Extras</button>
+        </div>
+      `
+      )
+      .join("");
+    $("detected-subs-list").querySelectorAll("[data-sub-tx-id]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const tx = txById.get(btn.getAttribute("data-sub-tx-id"));
+        if (tx) learnTransactionBucket(tx, BUCKETS.EXTRAS);
+      });
+    });
+  } else {
+    subsSection.classList.add("hidden");
+  }
+
+  if (triggerGemini) {
+    runBrowserGeminiClassification(monthTxs);
+  }
 }
 
-function renderDashboard() {
-  if (!state.data) return;
-  renderSyncStatus();
-  populateCategoryFilter();
-  renderAccounts();
+function sendMidMonthMailto() {
+  const monthTxs = getMonthCheckingTransactions(state.selectedYm);
+  let alim = 0;
+  let bars = 0;
+  let extras = 0;
+  const inflows = [];
 
-  const kpiTxs = getFilteredTransactions({ ignoreFlowFilter: true, ignoreCategoryFilter: true });
-  const tableTxs = getFilteredTransactions();
-  renderKPIs(kpiTxs);
-  renderMonthlyChart();
-  renderCategoryDonut(kpiTxs);
-  renderDailyCumulativeChart();
-  renderTransactionsTable(tableTxs);
+  for (const tx of monthTxs) {
+    const b = classifyTransaction(tx);
+    if (b === BUCKETS.ALIMENTAIRE) alim += Math.abs(tx.amount);
+    else if (b === BUCKETS.BARS) bars += Math.abs(tx.amount);
+    else if (b === BUCKETS.EXTRAS) extras += Math.abs(tx.amount);
+    else if (b === BUCKETS.GAIN) inflows.push(tx);
+  }
+
+  const { extraGains } = computeGains(inflows);
+  const reste1 = MONTHLY_BASE_ALLOWANCE - FIXED_CHARGES_TOTAL + extraGains - (alim + bars + extras);
+  const reste2 = reste1 - FOOD_PROVISION;
+  const alimOk = alim <= MID_MONTH_LIMIT_ALIM;
+  const extrasOk = extras <= MID_MONTH_LIMIT_EXTRAS;
+  const allOk = alimOk && extrasOk;
+
+  let recipient = (state.ghConfig.alertEmail || "joseph@decacqueray.fr").trim();
+  if (recipient.includes("@") && !recipient.split("@")[1].includes(".")) {
+    recipient = `${recipient}.fr`;
+  }
+
+  const subject = `${allOk ? "✅ Tu es bon" : "⚠️ Seuil dépassé"} — Bilan mi-mois (${formatMonthTitle(state.selectedYm)})`;
+  const body =
+    `Salut Joseph,\n\n` +
+    `Voici ton point dépenses de moitié de mois (${formatMonthTitle(state.selectedYm)}) :\n\n` +
+    `• Dépenses alimentaires : ${formatCurrency(alim)} / 50,00 € -> ${alimOk ? "OK" : "DÉPASSÉ"}\n` +
+    `• Extras : ${formatCurrency(extras)} / 25,00 € -> ${extrasOk ? "OK" : "DÉPASSÉ"}\n` +
+    `• Bars : ${formatCurrency(bars)}\n\n` +
+    `• Reste sans les abonnements et les dépenses : ${formatCurrency(reste1)}\n` +
+    `• Ce qu'il reste moins 100 € (nourriture prévue) : ${formatCurrency(reste2)}\n`;
+
+  window.location.href = `mailto:${encodeURIComponent(recipient)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
-function exportFilteredCsv() {
-  const rows = getFilteredTransactions();
-  const accById = new Map((state.data.accounts || []).map((a) => [a.id, a.label]));
-  const csvCell = (val) => `"${String(val ?? "").replaceAll('"', '""')}"`;
-
-  const lines = [
-    ["Date", "Compte", "Libellé", "Catégorie", "Statut", "Montant (EUR)"].map(csvCell).join(";"),
-    ...rows.map((tx) =>
-      [
-        tx.date,
-        accById.get(tx.account_id) || tx.account_id,
-        tx.label,
-        getEffectiveCategory(tx),
-        tx.coming ? "À venir" : "Comptabilisé",
-        String(tx.amount).replace(".", ","),
-      ]
-        .map(csvCell)
-        .join(";")
-    ),
-  ];
-
-  const blob = new Blob([`\uFEFF${lines.join("\r\n")}`], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `credit-mutuel-${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+function buildDemoData() {
+  const ym = new Date().toISOString().slice(0, 7);
+  return {
+    schema_version: 1,
+    generated_at: new Date().toISOString(),
+    last_ok_at: new Date().toISOString(),
+    sync: { status: "ok", needs_2fa: false, auth_error: false, message: "Mode démo" },
+    accounts: [
+      {
+        id: "demo-cc",
+        label: "Compte Courant",
+        group: "checking",
+        type_label: "Compte courant",
+        balance: 312.4,
+        currency: "EUR",
+      },
+    ],
+    transactions: [
+      { id: "d1", account_id: "demo-cc", date: `${ym}-02`, label: "VIR PARENTS MENSUEL", raw: "VIR PARENTS", amount: 200.0, coming: false, category: "gain" },
+      { id: "d2", account_id: "demo-cc", date: `${ym}-03`, label: "CB APPLE.COM/BILL", raw: "APPLE.COM/BILL", amount: -4.0, coming: false, category: "abonnement" },
+      { id: "d3", account_id: "demo-cc", date: `${ym}-04`, label: "PRLV VELIB METROPOLE", raw: "VELIB", amount: -17.74, coming: false, category: "abonnement" },
+      { id: "d4", account_id: "demo-cc", date: `${ym}-06`, label: "CB CARREFOUR CITY", raw: "CARREFOUR CITY", amount: -18.4, coming: false, category: "alimentaire" },
+      { id: "d5", account_id: "demo-cc", date: `${ym}-08`, label: "CB BOULANGERIE PAUL", raw: "PAUL", amount: -6.5, coming: false, category: "alimentaire" },
+      { id: "d6", account_id: "demo-cc", date: `${ym}-10`, label: "CB LE COMPTOIR DU BAR", raw: "LE COMPTOIR DU BAR", amount: -14.0, coming: false, category: "bars" },
+      { id: "d7", account_id: "demo-cc", date: `${ym}-12`, label: "CB FNAC PARIS", raw: "FNAC", amount: -15.9, coming: false, category: "extras" },
+    ],
+  };
 }
 
 async function unlockWithPassword(password) {
@@ -874,6 +884,7 @@ async function unlockWithPassword(password) {
   state.data = data;
   state.password = password;
   state.isDemo = false;
+  state.selectedYm = pickInitialMonth();
 
   if ($("remember-session").checked) {
     sessionStorage.setItem(STORAGE_KEYS.sessionPwd, password);
@@ -889,6 +900,7 @@ async function unlockWithPassword(password) {
 function openDemoMode() {
   state.data = buildDemoData();
   state.isDemo = true;
+  state.selectedYm = new Date().toISOString().slice(0, 7);
   $("lock-screen").classList.add("hidden");
   $("dashboard-screen").classList.remove("hidden");
   renderDashboard();
@@ -905,7 +917,7 @@ function lockDashboard() {
   $("lock-screen").classList.remove("hidden");
 }
 
-async function triggerCloudSync(mode = "interactive_2fa") {
+async function triggerCloudSync(mode = "schedule") {
   const { owner, syncRepo, pat } = state.ghConfig;
   if (!pat) return false;
   const resp = await fetch(
@@ -917,11 +929,17 @@ async function triggerCloudSync(mode = "interactive_2fa") {
         Authorization: `Bearer ${pat}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ ref: "main", inputs: { mode } }),
+      body: JSON.stringify({
+        ref: "main",
+        inputs: {
+          mode,
+          learned_rules_json: JSON.stringify(state.learnedRules),
+        },
+      }),
     }
   );
   if (!resp.ok) {
-    throw new Error(`Impossible de déclencher GitHub Actions (HTTP ${resp.status})`);
+    throw new Error(`GitHub Actions HTTP ${resp.status}`);
   }
   return true;
 }
@@ -932,67 +950,31 @@ async function handleRefreshClick() {
     return;
   }
   const btn = $("refresh-btn");
-  const labelEl = btn.querySelector(".btn-label");
-  const prevLabel = labelEl ? labelEl.textContent : btn.textContent;
-  const setLabel = (txt) => {
-    if (labelEl) {
-      labelEl.textContent = txt;
-    } else {
-      btn.textContent = txt;
-    }
-  };
   btn.disabled = true;
-
   try {
     if (state.ghConfig.pat) {
-      setLabel("Synchro cloud…");
-      const oldGen = state.data?.generated_at;
+      showToast("Synchronisation cloud lancée…");
       await triggerCloudSync("schedule");
-      for (let i = 0; i < 18; i += 1) {
-        await new Promise((r) => setTimeout(r, 4000));
-        const envelope = await fetchJsonNoCache("./data.enc");
-        const fresh = await decryptEnvelope(envelope, state.password);
-        if (fresh.generated_at && fresh.generated_at !== oldGen) {
-          state.data = fresh;
-          renderDashboard();
-          return;
-        }
-      }
     }
-    setLabel("Rechargement…");
     const envelope = await fetchJsonNoCache("./data.enc");
     state.data = await decryptEnvelope(envelope, state.password);
     renderDashboard();
+    showToast("Comptes actualisés");
   } catch (err) {
-    alert(`Erreur lors de l'actualisation : ${err.message}`);
+    showToast(`Erreur : ${err.message}`);
   } finally {
-    setLabel(prevLabel);
     btn.disabled = false;
   }
 }
 
 async function initApp() {
-  $("setup-actions-link").href = `https://github.com/${encodeURIComponent(state.ghConfig.owner)}/${encodeURIComponent(state.ghConfig.syncRepo)}/actions`;
-
-  // Load non-sensitive status metadata if available
   try {
     const meta = await fetchJsonNoCache("./meta.json");
-    const pill = $("lock-meta-pill");
-    const dot = $("lock-meta-dot");
-    const txt = $("lock-meta-text");
-    pill.classList.remove("hidden");
-    dot.className = `dot ${meta.status === "ok" ? "ok" : meta.status === "needs_2fa" ? "warn" : "err"}`;
-    txt.textContent = `Dernière synchro : ${formatRelativeTime(meta.last_ok_at || meta.updated_at)}`;
+    $("lock-meta-pill").classList.remove("hidden");
+    $("lock-meta-dot").className = `status-dot ${meta.status === "ok" ? "ok" : meta.status === "needs_2fa" ? "warn" : "err"}`;
+    $("lock-meta-text").textContent = `Synchro ${formatRelativeTime(meta.last_ok_at || meta.updated_at)}`;
   } catch {
-    // Check if data.enc exists yet
-    try {
-      const head = await fetch(`./data.enc?t=${Date.now()}`, { method: "HEAD", cache: "no-store" });
-      if (head.status === 404) {
-        $("first-setup-notice").classList.remove("hidden");
-      }
-    } catch {
-      // Ignore network check
-    }
+    // Ignore meta check error
   }
 
   const cachedPwd = sessionStorage.getItem(STORAGE_KEYS.sessionPwd);
@@ -1004,7 +986,6 @@ async function initApp() {
     }
   }
 
-  // Event listeners
   $("toggle-pwd-btn").addEventListener("click", () => {
     const inp = $("unlock-password");
     inp.type = inp.type === "password" ? "text" : "password";
@@ -1016,90 +997,113 @@ async function initApp() {
     const submitBtn = $("unlock-submit");
     errEl.classList.add("hidden");
     submitBtn.disabled = true;
-    submitBtn.textContent = "Déchiffrement en cours…";
+    submitBtn.textContent = "Déchiffrement…";
     try {
       await unlockWithPassword($("unlock-password").value);
-    } catch (err) {
-      errEl.textContent =
-        err.status === 404
-          ? "Le fichier data.enc n'existe pas encore. Lance la première synchro sur GitHub Actions ou clique sur « Tester avec des données démo »."
-          : "Mot de passe incorrect ou données corrompues.";
+    } catch {
+      errEl.textContent = "Mot de passe incorrect.";
       errEl.classList.remove("hidden");
     } finally {
       submitBtn.disabled = false;
-      submitBtn.textContent = "Déchiffrer et ouvrir";
+      submitBtn.textContent = "Déverrouiller";
     }
   });
 
-  $("demo-mode-btn")?.addEventListener("click", openDemoMode);
   $("demo-fallback-btn").addEventListener("click", openDemoMode);
   $("lock-btn").addEventListener("click", lockDashboard);
+  $("mac-close-dot")?.addEventListener("click", lockDashboard);
   $("refresh-btn").addEventListener("click", handleRefreshClick);
-  $("export-csv-btn").addEventListener("click", exportFilteredCsv);
-  $("clear-account-filter").addEventListener("click", () => {
-    state.selectedAccountId = "all";
-    renderDashboard();
+  $("prev-month-btn").addEventListener("click", () => stepMonth(-1));
+  $("next-month-btn").addEventListener("click", () => stepMonth(1));
+
+  $("toggle-subs-btn").addEventListener("click", () => {
+    const drawer = $("subs-drawer");
+    drawer.classList.toggle("hidden");
+    $("subs-chevron").textContent = drawer.classList.contains("hidden") ? "▾" : "▴";
   });
 
-  $("trigger-2fa-btn").addEventListener("click", async () => {
-    try {
-      await triggerCloudSync("interactive_2fa");
-      alert("Workflow 2FA lancé ! Ouvre l'application Crédit Mutuel sur ton téléphone pour valider la demande dans les prochains instants.");
-    } catch (err) {
-      alert(err.message);
-    }
+  $("toggle-detected-subs").addEventListener("click", () => {
+    $("detected-subs-list").classList.toggle("hidden");
   });
 
-  [
-    "filter-search",
-    "filter-period",
-    "filter-flow",
-    "filter-category",
-    "toggle-coming",
-    "toggle-exclude-summary",
-    "toggle-exclude-internal",
-  ].forEach((id) => {
-    $(id).addEventListener("input", () => {
-      state.visibleCount = state.pageSize;
-      renderDashboard();
-    });
-    $(id).addEventListener("change", () => {
-      state.visibleCount = state.pageSize;
-      renderDashboard();
+  $("send-midmonth-mail-btn").addEventListener("click", sendMidMonthMailto);
+
+  // iOS 27 segmented control
+  document.querySelectorAll(".seg-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".seg-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      state.mobileColFilter = btn.getAttribute("data-col-filter") || "all";
+      renderDashboard(false);
     });
   });
 
-  $("load-more-btn").addEventListener("click", () => {
-    state.visibleCount += state.pageSize;
-    renderTransactionsTable(getFilteredTransactions());
+  // macOS 27 Drag-and-drop onto columns
+  document.querySelectorAll(".expense-column").forEach((col) => {
+    col.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      col.classList.add("drag-over");
+    });
+    col.addEventListener("dragleave", () => {
+      col.classList.remove("drag-over");
+    });
+    col.addEventListener("drop", (e) => {
+      e.preventDefault();
+      col.classList.remove("drag-over");
+      const txId = e.dataTransfer.getData("text/plain");
+      const targetBucket = col.getAttribute("data-bucket");
+      const monthTxs = getMonthCheckingTransactions(state.selectedYm);
+      const tx = monthTxs.find((t) => t.id === txId);
+      if (tx && targetBucket) {
+        learnTransactionBucket(tx, targetBucket);
+      }
+    });
   });
 
-  // Settings modal
+  // Settings Modal
   const dlg = $("settings-dialog");
-  $("settings-btn").addEventListener("click", () => {
-    $("cfg-owner").value = state.ghConfig.owner || "";
-    $("cfg-sync-repo").value = state.ghConfig.syncRepo || "cm-budget-sync";
+  $("ai-status-btn").addEventListener("click", () => {
+    $("cfg-gemini-key").value = state.ghConfig.geminiKey || "";
+    $("cfg-alert-email").value = state.ghConfig.alertEmail || "joseph@decacqueray.fr";
     $("cfg-gh-pat").value = state.ghConfig.pat || "";
+    $("cfg-owner").value = state.ghConfig.owner || "Josephdecacqueray";
+    $("cfg-sync-repo").value = state.ghConfig.syncRepo || "cm-budget-sync";
+    updateAiBadge();
     dlg.showModal();
   });
+
   $("close-settings-btn").addEventListener("click", () => dlg.close());
-  $("clear-settings-btn").addEventListener("click", () => {
-    state.ghConfig.pat = "";
-    $("cfg-gh-pat").value = "";
-    localStorage.setItem(STORAGE_KEYS.ghConfig, JSON.stringify(state.ghConfig));
-    renderSyncStatus();
-    dlg.close();
+
+  $("reclassify-gemini-btn").addEventListener("click", async () => {
+    state.geminiCache = {};
+    saveJsonStorage(STORAGE_KEYS.geminiCache, {});
+    state.ghConfig.geminiKey = $("cfg-gemini-key").value.trim();
+    saveJsonStorage(STORAGE_KEYS.ghConfig, state.ghConfig);
+    await runBrowserGeminiClassification(getMonthCheckingTransactions(state.selectedYm));
+    showToast("Analyse Gemini Pro mise à jour");
   });
+
+  $("reset-memory-btn").addEventListener("click", () => {
+    state.learnedRules = {};
+    state.geminiCache = {};
+    saveJsonStorage(STORAGE_KEYS.learnedRules, {});
+    saveJsonStorage(STORAGE_KEYS.geminiCache, {});
+    updateAiBadge();
+    renderDashboard(false);
+    showToast("Mémoire de l'IA réinitialisée");
+  });
+
   $("settings-form").addEventListener("submit", (e) => {
     e.preventDefault();
     state.ghConfig = {
-      owner: $("cfg-owner").value.trim() || "Josephdecacqueray",
-      syncRepo: $("cfg-sync-repo").value.trim() || "cm-budget-sync",
+      ...state.ghConfig,
+      geminiKey: $("cfg-gemini-key").value.trim(),
+      alertEmail: $("cfg-alert-email").value.trim() || "joseph@decacqueray.fr",
       pat: $("cfg-gh-pat").value.trim(),
     };
-    localStorage.setItem(STORAGE_KEYS.ghConfig, JSON.stringify(state.ghConfig));
-    renderSyncStatus();
+    saveJsonStorage(STORAGE_KEYS.ghConfig, state.ghConfig);
     dlg.close();
+    renderDashboard(true);
   });
 }
 
