@@ -793,10 +793,21 @@ function renderDashboard(triggerGemini = true) {
   }
 
   const sumAbs = (arr) => Math.round(arr.reduce((s, t) => s + Math.abs(t.amount || 0), 0) * 100) / 100;
+  const isFirstHalfTx = (t) => {
+    const day = Number(String(t.date || "").slice(8, 10));
+    return !Number.isNaN(day) && day >= 1 && day <= 15;
+  };
+  const sumFirstHalf = (arr) =>
+    Math.round(arr.filter(isFirstHalfTx).reduce((s, t) => s + Math.abs(t.amount || 0), 0) * 100) / 100;
+
   const totalAlim = sumAbs(buckets.alimentaire);
   const totalBars = sumAbs(buckets.bars);
   const totalExtras = sumAbs(buckets.extras);
   const totalPersonalVariable = Math.round((totalAlim + totalBars + totalExtras) * 100) / 100;
+
+  // First-half only (1st to 15th of the month) for the mid-month check!
+  const firstHalfAlim = sumFirstHalf(buckets.alimentaire);
+  const firstHalfExtras = sumFirstHalf(buckets.extras);
 
   const {
     totalColocAdvanced,
@@ -869,23 +880,23 @@ function renderDashboard(triggerGemini = true) {
   barEl.style.width = `${foodPct}%`;
   barEl.classList.toggle("over", totalAlim > FOOD_PROVISION);
 
-  // Mid-month status (15th of the month rules: Alimentaire <= 50 €, Extras <= 25 €)
-  const alimMidOk = totalAlim <= MID_MONTH_LIMIT_ALIM;
-  const extrasMidOk = totalExtras <= MID_MONTH_LIMIT_EXTRAS;
+  // Mid-month status (strictly 1st to 15th of the month: Alimentaire <= 50 €, Extras <= 25 €)
+  const alimMidOk = firstHalfAlim <= MID_MONTH_LIMIT_ALIM;
+  const extrasMidOk = firstHalfExtras <= MID_MONTH_LIMIT_EXTRAS;
   const midAllOk = alimMidOk && extrasMidOk;
 
   $("midmonth-dot").className = `status-dot ${midAllOk ? "ok" : "warn"}`;
   $("midmonth-title").textContent = midAllOk
-    ? "Bilan mi-mois : Tu es bon niveau dépenses !"
-    : "Bilan mi-mois : Seuil de moitié de mois dépassé";
-  $("midmonth-desc").textContent = `Alimentaire : ${formatCurrency(totalAlim)} / 50 € · Extras : ${formatCurrency(totalExtras)} / 25 €`;
+    ? "Bilan 1re moitié de mois (1er–15) : Tu étais dans les clous !"
+    : "Bilan 1re moitié de mois (1er–15) : Seuil dépassé, à compenser";
+  $("midmonth-desc").textContent = `Du 1er au 15 uniquement → Alimentaire : ${formatCurrency(firstHalfAlim)} / 50 € · Extras : ${formatCurrency(firstHalfExtras)} / 25 €`;
 
   const tagAlim = $("tag-limit-alim");
-  tagAlim.textContent = `${formatCurrency(totalAlim)} / 50 € mi-mois`;
+  tagAlim.textContent = `1er–15 : ${formatCurrency(firstHalfAlim)} / 50 €`;
   tagAlim.className = `col-limit-tag ${alimMidOk ? "" : "over"}`;
 
   const tagExtras = $("tag-limit-extras");
-  tagExtras.textContent = `${formatCurrency(totalExtras)} / 25 € mi-mois`;
+  tagExtras.textContent = `1er–15 : ${formatCurrency(firstHalfExtras)} / 25 €`;
   tagExtras.className = `col-limit-tag ${extrasMidOk ? "" : "over"}`;
 
   // Inflows / Reimbursements strip
@@ -1012,23 +1023,35 @@ function sendMidMonthMailto() {
   let alim = 0;
   let bars = 0;
   let extras = 0;
+  let firstHalfAlim = 0;
+  let firstHalfExtras = 0;
   const colocTxs = [];
   const inflows = [];
 
   for (const tx of monthTxs) {
     const b = classifyTransaction(tx);
-    if (b === BUCKETS.ALIMENTAIRE) alim += Math.abs(tx.amount);
-    else if (b === BUCKETS.BARS) bars += Math.abs(tx.amount);
-    else if (b === BUCKETS.EXTRAS) extras += Math.abs(tx.amount);
-    else if (b === BUCKETS.COLOC) colocTxs.push(tx);
-    else if (b === BUCKETS.GAIN) inflows.push(tx);
+    const day = Number(String(tx.date || "").slice(8, 10));
+    const isFirstHalf = !Number.isNaN(day) && day >= 1 && day <= 15;
+    if (b === BUCKETS.ALIMENTAIRE) {
+      alim += Math.abs(tx.amount);
+      if (isFirstHalf) firstHalfAlim += Math.abs(tx.amount);
+    } else if (b === BUCKETS.BARS) {
+      bars += Math.abs(tx.amount);
+    } else if (b === BUCKETS.EXTRAS) {
+      extras += Math.abs(tx.amount);
+      if (isFirstHalf) firstHalfExtras += Math.abs(tx.amount);
+    } else if (b === BUCKETS.COLOC) {
+      colocTxs.push(tx);
+    } else if (b === BUCKETS.GAIN) {
+      inflows.push(tx);
+    }
   }
 
   const { colocOwed, extraGains } = analyzeInflowsAndColocDebt(inflows, colocTxs);
   const reste1 = MONTHLY_BASE_ALLOWANCE - FIXED_CHARGES_TOTAL + extraGains - (alim + bars + extras);
   const reste2 = MONTHLY_BASE_ALLOWANCE - FIXED_CHARGES_TOTAL + extraGains - Math.max(FOOD_PROVISION, alim) - bars - extras;
-  const alimOk = alim <= MID_MONTH_LIMIT_ALIM;
-  const extrasOk = extras <= MID_MONTH_LIMIT_EXTRAS;
+  const alimOk = firstHalfAlim <= MID_MONTH_LIMIT_ALIM;
+  const extrasOk = firstHalfExtras <= MID_MONTH_LIMIT_EXTRAS;
   const allOk = alimOk && extrasOk;
 
   let recipient = (state.ghConfig.alertEmail || "joseph@decacqueray.fr").trim();
@@ -1036,13 +1059,12 @@ function sendMidMonthMailto() {
     recipient = `${recipient}.fr`;
   }
 
-  const subject = `${allOk ? "✅ Tu es bon" : "⚠️ Seuil dépassé"} — Bilan mi-mois (${formatMonthTitle(state.selectedYm)})`;
+  const subject = `${allOk ? "✅ Début de mois OK" : "⚠️ À compenser"} — Bilan 1er–15 (${formatMonthTitle(state.selectedYm)})`;
   const body =
     `Salut Joseph,\n\n` +
-    `Voici ton point dépenses de moitié de mois (${formatMonthTitle(state.selectedYm)}) :\n\n` +
-    `• Dépenses alimentaires : ${formatCurrency(alim)} / 50,00 € -> ${alimOk ? "OK" : "DÉPASSÉ"}\n` +
-    `• Extras : ${formatCurrency(extras)} / 25,00 € -> ${extrasOk ? "OK" : "DÉPASSÉ"}\n` +
-    `• Bars : ${formatCurrency(bars)}\n` +
+    `Voici le bilan de ta première moitié de mois (du 1er au 15 ${formatMonthTitle(state.selectedYm)}) :\n\n` +
+    `• Dépenses alimentaires (1er–15) : ${formatCurrency(firstHalfAlim)} / 50,00 € -> ${alimOk ? "OK" : "DÉPASSÉ (à compenser)"}\n` +
+    `• Extras (1er–15) : ${formatCurrency(firstHalfExtras)} / 25,00 € -> ${extrasOk ? "OK" : "DÉPASSÉ (à compenser)"}\n` +
     `• Les colocs me doivent : ${formatCurrency(colocOwed)}\n\n` +
     `• Reste sans les abonnements et les dépenses : ${formatCurrency(reste1)}\n` +
     `• Ce qu'il reste moins 100 € (nourriture prévue) : ${formatCurrency(reste2)}\n`;
