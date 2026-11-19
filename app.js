@@ -10,6 +10,7 @@ const BUCKETS = {
   ALIMENTAIRE: "alimentaire",
   BARS: "bars",
   EXTRAS: "extras",
+  COLOC: "coloc",
   ABONNEMENT: "abonnement",
   GAIN: "gain",
 };
@@ -18,8 +19,14 @@ const BUCKET_LABELS = {
   alimentaire: "Dépenses alimentaires",
   bars: "Bars",
   extras: "Extras",
+  coloc: "Pour la coloc",
   abonnement: "Abonnements fixes (60,23 €)",
 };
+
+const COLOC_ADVANCE_KEYWORDS = [
+  "delices pasteur",
+  "delice pasteur",
+];
 
 const FIXED_SUB_RULES = [
   { amount: 4.0, keywords: ["apple.com/bill", "itunes", "apple music"] },
@@ -27,7 +34,6 @@ const FIXED_SUB_RULES = [
   { amount: 5.49, keywords: ["google one", "google*google", "g.co/helppay", "google storage", "google play"] },
   { amount: 17.74, keywords: ["velib", "smovengo"] },
   { amount: 10.0, keywords: ["tirelire", "vir livret", "virement livret", "epargne"] },
-  { amount: 10.0, keywords: ["coloc"] },
 ];
 
 const BARS_KEYWORDS = [
@@ -135,9 +141,9 @@ const ALIMENTAIRE_KEYWORDS = [
 
 const STORAGE_KEYS = {
   sessionPwd: "cm_dash_session_pwd",
-  learnedRules: "cm_ai_learned_rules_v2",
-  geminiCache: "cm_ai_gemini_cache_v2",
-  gainOverrides: "cm_gain_overrides_v1",
+  learnedRules: "cm_ai_learned_rules_v3",
+  geminiCache: "cm_ai_gemini_cache_v3",
+  gainOverrides: "cm_gain_overrides_v2",
   ghConfig: "cm_dash_gh_cfg_v1",
 };
 
@@ -170,7 +176,7 @@ function saveJsonStorage(key, val) {
   try {
     localStorage.setItem(key, JSON.stringify(val));
   } catch {
-    // Ignore storage quota issues
+    // Ignore storage quota errors
   }
 }
 
@@ -258,6 +264,11 @@ function cleanDisplayLabel(label, raw = "") {
     .trim() || src;
 }
 
+function isColocAdvance(label, raw) {
+  const hay = normalizeText(`${label} ${raw}`);
+  return COLOC_ADVANCE_KEYWORDS.some((kw) => hay.includes(kw));
+}
+
 function isFixedSubscription(label, raw, amount) {
   if (amount >= 0) return false;
   const absAmt = Math.round(Math.abs(amount) * 100) / 100;
@@ -277,32 +288,37 @@ function classifyTransaction(tx) {
   const mKey = tx.merchant_key || extractMerchantKey(tx.label, tx.raw);
 
   // 1. User learned rules (highest priority: permanent learning)
-  if (state.learnedRules[mKey]) {
+  if (state.learnedRules[mKey] && BUCKET_LABELS[state.learnedRules[mKey]]) {
     return state.learnedRules[mKey];
   }
   const cloudRules = state.data?.learned_rules || {};
-  if (cloudRules[mKey]) {
+  if (cloudRules[mKey] && BUCKET_LABELS[cloudRules[mKey]]) {
     return cloudRules[mKey];
   }
 
-  // 2. Cached Gemini Pro result
-  if (state.geminiCache[mKey]) {
+  // 2. Pre-learned coloc advances: DELICES PASTEUR PARIS
+  if (isColocAdvance(tx.label, tx.raw)) {
+    return BUCKETS.COLOC;
+  }
+
+  // 3. Cached Gemini Pro result
+  if (state.geminiCache[mKey] && BUCKET_LABELS[state.geminiCache[mKey]]) {
     return state.geminiCache[mKey];
   }
 
-  // 3. Server-side already classified in one of the 4 buckets
-  if ([BUCKETS.ALIMENTAIRE, BUCKETS.BARS, BUCKETS.EXTRAS, BUCKETS.ABONNEMENT].includes(tx.category)) {
+  // 4. Server-side already classified in one of our buckets
+  if ([BUCKETS.ALIMENTAIRE, BUCKETS.BARS, BUCKETS.EXTRAS, BUCKETS.COLOC, BUCKETS.ABONNEMENT].includes(tx.category)) {
     if (tx.category !== BUCKETS.EXTRAS) {
       return tx.category;
     }
   }
 
-  // 4. Fixed subscriptions check (60.23 EUR pack)
+  // 5. Fixed subscriptions check (60.23 EUR pack)
   if (isFixedSubscription(tx.label, tx.raw, tx.amount)) {
     return BUCKETS.ABONNEMENT;
   }
 
-  // 5. Smart French keyword & legacy category mapping
+  // 6. Smart French keyword & legacy category mapping
   const hay = normalizeText(`${tx.label} ${tx.raw} ${tx.category || ""}`);
   if (BARS_KEYWORDS.some((kw) => hay.includes(kw))) {
     return BUCKETS.BARS;
@@ -318,8 +334,8 @@ function learnTransactionBucket(tx, targetBucket) {
   if (!mKey) return;
   state.learnedRules[mKey] = targetBucket;
   saveJsonStorage(STORAGE_KEYS.learnedRules, state.learnedRules);
-  showToast(`« ${cleanDisplayLabel(tx.label)} » classé dans ${BUCKET_LABELS[targetBucket]} · L'IA s'en souviendra`);
-  renderDashboard();
+  showToast(`« ${cleanDisplayLabel(tx.label)} » → ${BUCKET_LABELS[targetBucket]} · Mémorisé par l'IA`);
+  renderDashboard(false);
 }
 
 function showToast(message) {
@@ -340,6 +356,7 @@ async function runBrowserGeminiClassification(monthTxs) {
     if (tx.amount >= 0) return false;
     const mKey = tx.merchant_key || extractMerchantKey(tx.label, tx.raw);
     if (state.learnedRules[mKey] || state.geminiCache[mKey]) return false;
+    if (isColocAdvance(tx.label, tx.raw)) return false;
     if (isFixedSubscription(tx.label, tx.raw, tx.amount)) return false;
     return true;
   });
@@ -349,19 +366,23 @@ async function runBrowserGeminiClassification(monthTxs) {
   $("ai-badge-text").textContent = "Gemini analyse…";
 
   try {
-    const mergedLearned = { ...(state.data?.learned_rules || {}), ...state.learnedRules };
-    const learnedExamples =
-      Object.entries(mergedLearned)
-        .slice(0, 80)
-        .map(([m, b]) => `- ${m} -> ${b}`)
-        .join("\n") || "(Aucun exemple personnalisé)";
+    const mergedLearned = {
+      "delices pasteur paris": BUCKETS.COLOC,
+      ...(state.data?.learned_rules || {}),
+      ...state.learnedRules,
+    };
+    const learnedExamples = Object.entries(mergedLearned)
+      .slice(0, 80)
+      .map(([m, b]) => `- ${m} -> ${b}`)
+      .join("\n");
 
     const systemInstruction =
-      "Tu classes les dépenses du compte courant d'un étudiant en France dans EXACTEMENT l'une de ces 4 catégories :\n" +
-      "- 'alimentaire' : courses, supermarchés, boulangeries, repas, fast-food, Uber Eats, Deliveroo, CROUS.\n" +
+      "Tu classes les dépenses du compte courant d'un étudiant en France dans EXACTEMENT l'une de ces 5 catégories :\n" +
+      "- 'alimentaire' : courses personnelles, supermarchés, boulangeries, repas, fast-food, Uber Eats, Deliveroo, CROUS.\n" +
       "- 'bars' : bars, pubs, cafés de sortie, bières, brasseries, soirées.\n" +
-      "- 'extras' : toutes les autres dépenses (shopping, train, loisirs, pharmacie, Amazon, divers).\n" +
-      "- 'abonnement' : uniquement Apple Music (4€), Forfait (3€), Google One (5.49€), Vélib (17.74€), Tirelire (10€), Coloc (10€).\n\n" +
+      "- 'extras' : toutes les autres dépenses personnelles (shopping, train, loisirs, pharmacie, Amazon, divers).\n" +
+      "- 'coloc' : dépenses avancées pour les colocataires (notamment DELICES PASTEUR PARIS).\n" +
+      "- 'abonnement' : uniquement Apple Music (4€), Forfait (3€), Google One (5.49€), Vélib (17.74€), Tirelire (10€).\n\n" +
       "Exemples appris des corrections de l'utilisateur :\n" +
       learnedExamples;
 
@@ -383,7 +404,7 @@ async function runBrowserGeminiClassification(monthTxs) {
               merchant: { type: "string" },
               category: {
                 type: "string",
-                enum: [BUCKETS.ALIMENTAIRE, BUCKETS.BARS, BUCKETS.EXTRAS, BUCKETS.ABONNEMENT],
+                enum: [BUCKETS.ALIMENTAIRE, BUCKETS.BARS, BUCKETS.EXTRAS, BUCKETS.COLOC, BUCKETS.ABONNEMENT],
               },
             },
             required: ["merchant", "category"],
@@ -444,7 +465,7 @@ async function runBrowserGeminiClassification(monthTxs) {
       }
     }
   } catch {
-    // Ignore transient network errors and fall back to local rules
+    // Fallback silently to local rules
   } finally {
     state.geminiRunning = false;
     updateAiBadge();
@@ -503,10 +524,16 @@ async function fetchJsonNoCache(url) {
   return resp.json();
 }
 
+function isSavingsAccountLabel(label) {
+  return /livret|epargne|épargne|ldd|pel|cel|pea|assurance|toni/i.test(String(label || ""));
+}
+
 function getCheckingAccounts() {
   const accounts = state.data?.accounts || [];
-  const checking = accounts.filter((a) => a.group === "checking");
-  return checking.length ? checking : accounts.slice(0, 1);
+  const checking = accounts.filter((a) => a.group === "checking" && !isSavingsAccountLabel(a.label));
+  if (checking.length) return checking;
+  const fallback = accounts.filter((a) => !isSavingsAccountLabel(a.label));
+  return fallback.length ? fallback.slice(0, 1) : accounts.slice(0, 1);
 }
 
 function getMonthCheckingTransactions(ym) {
@@ -535,35 +562,112 @@ function stepMonth(delta) {
   renderDashboard();
 }
 
-function computeGains(inflowTxs) {
-  // Identify which inflow is the 200 EUR base allowance vs extra gains
+/**
+ * Classify positive inflows into:
+ * - 'base' : the 200 EUR monthly parents allowance
+ * - 'coloc_reimb' : reimbursement from roommates when amount matches what colocs owe (or an advance / prefix sum)
+ * - 'extra' : additional personal income
+ */
+function analyzeInflowsAndColocDebt(inflowTxs, colocExpenseTxs) {
+  const sortedColoc = [...colocExpenseTxs].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const colocAmounts = sortedColoc.map((t) => Math.round(Math.abs(t.amount || 0) * 100) / 100);
+  const totalColocAdvanced = Math.round(colocAmounts.reduce((s, v) => s + v, 0) * 100) / 100;
+
+  // 1. Identify which inflow is the 200 EUR parents base allowance
   let autoBaseId = null;
   for (const tx of inflowTxs) {
-    const override = state.gainOverrides[tx.id];
-    if (override === "base") {
+    if (state.gainOverrides[tx.id] === "base") {
       autoBaseId = tx.id;
       break;
     }
   }
   if (!autoBaseId) {
     const candidate = inflowTxs.find(
-      (tx) => state.gainOverrides[tx.id] !== "extra" && Math.abs(tx.amount - MONTHLY_BASE_ALLOWANCE) <= 5.0
+      (tx) => !state.gainOverrides[tx.id] && Math.abs(tx.amount - MONTHLY_BASE_ALLOWANCE) <= 5.0
     );
     if (candidate) autoBaseId = candidate.id;
   }
 
+  // 2. Match remaining inflows against coloc debt automatically (or via manual override)
+  let remainingAdvances = [...colocAmounts];
+  let totalColocReimbursed = 0;
+  let outstandingColoc = totalColocAdvanced;
   let extraGains = 0;
-  const items = inflowTxs.map((tx) => {
-    const isBase = state.gainOverrides[tx.id]
-      ? state.gainOverrides[tx.id] === "base"
-      : tx.id === autoBaseId;
-    if (!isBase) {
-      extraGains += tx.amount;
-    }
-    return { tx, isBase };
-  });
 
-  return { extraGains: Math.round(extraGains * 100) / 100, items };
+  const sortedInflows = [...inflowTxs].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const roleById = new Map();
+
+  for (const tx of sortedInflows) {
+    const amt = Math.round((tx.amount || 0) * 100) / 100;
+    const manual = state.gainOverrides[tx.id];
+
+    if (manual === "base" || (!manual && tx.id === autoBaseId)) {
+      roleById.set(tx.id, "base");
+      continue;
+    }
+
+    if (manual === "coloc_reimb") {
+      roleById.set(tx.id, "coloc_reimb");
+      totalColocReimbursed = Math.round((totalColocReimbursed + amt) * 100) / 100;
+      outstandingColoc = Math.round(Math.max(0, totalColocAdvanced - totalColocReimbursed) * 100) / 100;
+      continue;
+    }
+
+    if (manual === "extra") {
+      roleById.set(tx.id, "extra");
+      extraGains = Math.round((extraGains + amt) * 100) / 100;
+      continue;
+    }
+
+    // Automatic matching: if inflow equals current outstanding coloc debt, single coloc expense, or prefix sum
+    let matchedColoc = false;
+    if (outstandingColoc > 0 && Math.abs(amt - outstandingColoc) <= 0.05) {
+      matchedColoc = true;
+      remainingAdvances = [];
+    } else {
+      const singleIdx = remainingAdvances.findIndex((adv) => Math.abs(amt - adv) <= 0.05);
+      if (singleIdx !== -1) {
+        matchedColoc = true;
+        remainingAdvances.splice(singleIdx, 1);
+      } else {
+        let runSum = 0;
+        let prefixIdx = -1;
+        for (let i = 0; i < remainingAdvances.length; i += 1) {
+          runSum = Math.round((runSum + remainingAdvances[i]) * 100) / 100;
+          if (Math.abs(amt - runSum) <= 0.05) {
+            prefixIdx = i;
+            break;
+          }
+        }
+        if (prefixIdx !== -1) {
+          matchedColoc = true;
+          remainingAdvances.splice(0, prefixIdx + 1);
+        }
+      }
+    }
+
+    if (matchedColoc) {
+      roleById.set(tx.id, "coloc_reimb");
+      totalColocReimbursed = Math.round((totalColocReimbursed + amt) * 100) / 100;
+      outstandingColoc = Math.round(Math.max(0, totalColocAdvanced - totalColocReimbursed) * 100) / 100;
+    } else {
+      roleById.set(tx.id, "extra");
+      extraGains = Math.round((extraGains + amt) * 100) / 100;
+    }
+  }
+
+  const items = inflowTxs.map((tx) => ({
+    tx,
+    role: roleById.get(tx.id) || "extra",
+  }));
+
+  return {
+    totalColocAdvanced,
+    totalColocReimbursed,
+    colocOwed: Math.round(Math.max(0, totalColocAdvanced - totalColocReimbursed) * 100) / 100,
+    extraGains,
+    items,
+  };
 }
 
 function renderExpenseCard(tx, currentBucket) {
@@ -576,6 +680,7 @@ function renderExpenseCard(tx, currentBucket) {
     { key: BUCKETS.ALIMENTAIRE, short: "Alim" },
     { key: BUCKETS.BARS, short: "Bars" },
     { key: BUCKETS.EXTRAS, short: "Extras" },
+    { key: BUCKETS.COLOC, short: "Coloc" },
     { key: BUCKETS.ABONNEMENT, short: "Abo" },
   ].filter((t) => t.key !== currentBucket);
 
@@ -618,7 +723,7 @@ function renderDashboard(triggerGemini = true) {
   const rel = formatRelativeTime(state.data.last_ok_at || state.data.generated_at);
   if (sync.status === "ok") {
     dot.classList.add("ok");
-    statusText.textContent = `Synchro ${rel}`;
+    statusText.textContent = `Compte Courant · ${rel}`;
   } else if (sync.status === "needs_2fa") {
     dot.classList.add("warn");
     statusText.textContent = "2FA requise";
@@ -633,7 +738,7 @@ function renderDashboard(triggerGemini = true) {
   $("alert-gh-link").href = `https://github.com/${encodeURIComponent(state.ghConfig.owner)}/${encodeURIComponent(state.ghConfig.syncRepo)}/actions`;
   $("trigger-2fa-btn").classList.toggle("hidden", !state.ghConfig.pat);
 
-  // Checking account balance
+  // Strict Compte Courant balance ONLY (never savings)
   const checkingAccs = getCheckingAccounts();
   const bankBalance = checkingAccs.reduce((s, a) => s + (a.balance || 0), 0);
   $("bank-balance-pill").textContent = `Solde Compte Courant : ${formatCurrency(bankBalance)}`;
@@ -646,6 +751,7 @@ function renderDashboard(triggerGemini = true) {
     alimentaire: [],
     bars: [],
     extras: [],
+    coloc: [],
     abonnement: [],
     gain: [],
   };
@@ -659,24 +765,60 @@ function renderDashboard(triggerGemini = true) {
   const totalAlim = sumAbs(buckets.alimentaire);
   const totalBars = sumAbs(buckets.bars);
   const totalExtras = sumAbs(buckets.extras);
-  const totalVariable = Math.round((totalAlim + totalBars + totalExtras) * 100) / 100;
+  const totalPersonalVariable = Math.round((totalAlim + totalBars + totalExtras) * 100) / 100;
 
-  const { extraGains, items: gainItems } = computeGains(buckets.gain);
+  const {
+    totalColocAdvanced,
+    totalColocReimbursed,
+    colocOwed,
+    extraGains,
+    items: gainItems,
+  } = analyzeInflowsAndColocDebt(buckets.gain, buckets.coloc);
+
+  // TOP BANNER : Les colocs me doivent
+  $("val-colocs-owed").textContent = formatCurrency(colocOwed);
+  const colocBadge = $("coloc-status-badge");
+  const colocTagCol = $("tag-coloc-col");
+  if (totalColocAdvanced === 0) {
+    colocBadge.textContent = "Aucune avance ce mois-ci";
+    colocBadge.className = "coloc-badge";
+    $("sub-colocs-owed").textContent = "Les dépenses DELICES PASTEUR PARIS se rangent automatiquement dans « Pour la coloc ».";
+    colocTagCol.textContent = "Avancé (→ 0 €)";
+  } else if (colocOwed === 0) {
+    colocBadge.textContent = `✓ Remboursé (${formatCurrency(totalColocReimbursed)} reçus)`;
+    colocBadge.className = "coloc-badge reimbursed";
+    $("sub-colocs-owed").textContent = `${formatCurrency(totalColocAdvanced)} avancés chez DELICES PASTEUR PARIS / Pour la coloc · Intégralement remboursé`;
+    colocTagCol.textContent = "✓ Remboursé";
+  } else if (totalColocReimbursed > 0) {
+    colocBadge.textContent = `Partiellement remboursé (${formatCurrency(totalColocReimbursed)})`;
+    colocBadge.className = "coloc-badge";
+    $("sub-colocs-owed").textContent = `${formatCurrency(totalColocAdvanced)} avancés − ${formatCurrency(totalColocReimbursed)} déjà reçus`;
+    colocTagCol.textContent = `Dû : ${formatCurrency(colocOwed)}`;
+  } else {
+    colocBadge.textContent = "En attente de remboursement";
+    colocBadge.className = "coloc-badge";
+    $("sub-colocs-owed").textContent = `${formatCurrency(totalColocAdvanced)} avancés dans « Pour la coloc » (reviendra à 0 € dès réception du virement exact)`;
+    colocTagCol.textContent = `Dû : ${formatCurrency(colocOwed)}`;
+  }
 
   // SECTION 1 : Reste sans les abonnements et les dépenses
-  // 200 € - 60.23 € (abonnements fixes) - dépenses du mois + gains supplémentaires
-  const resteSansAbonnements = Math.round((MONTHLY_BASE_ALLOWANCE - FIXED_CHARGES_TOTAL + extraGains - totalVariable) * 100) / 100;
+  // Personal expenses only (Pour la coloc returns to 0 after reimbursement)
+  const resteSansAbonnements = Math.round(
+    (MONTHLY_BASE_ALLOWANCE - FIXED_CHARGES_TOTAL + extraGains - totalPersonalVariable) * 100
+  ) / 100;
   const elReste1 = $("val-reste-principal");
   elReste1.textContent = formatCurrency(resteSansAbonnements);
   elReste1.className = `hero-amount ${resteSansAbonnements >= 0 ? "positive-val" : "negative-val"}`;
 
   const gainPart = extraGains > 0 ? ` + ${formatCurrency(extraGains)} de gains` : "";
-  $("sub-reste-principal").textContent = `200,00 € − 60,23 € d'abonnements − ${formatCurrency(totalVariable)} dépensés${gainPart}`;
+  $("sub-reste-principal").textContent = `200,00 € − 60,23 € d'abonnements − ${formatCurrency(totalPersonalVariable)} dépensés${gainPart}`;
 
   // SECTION 2 : Ce qu'il reste moins 100 € (budget nourriture prévu)
   const resteMoins100 = Math.round((resteSansAbonnements - FOOD_PROVISION) * 100) / 100;
   const foodEnvelopeLeft = Math.round(Math.max(0, FOOD_PROVISION - totalAlim) * 100) / 100;
-  const libreHorsNourriture = Math.round((MONTHLY_BASE_ALLOWANCE - FIXED_CHARGES_TOTAL - FOOD_PROVISION + extraGains - totalBars - totalExtras - Math.max(0, totalAlim - FOOD_PROVISION)) * 100) / 100;
+  const libreHorsNourriture = Math.round(
+    (MONTHLY_BASE_ALLOWANCE - FIXED_CHARGES_TOTAL - FOOD_PROVISION + extraGains - totalBars - totalExtras - Math.max(0, totalAlim - FOOD_PROVISION)) * 100
+  ) / 100;
 
   const elReste2 = $("val-reste-moins-100");
   elReste2.textContent = formatCurrency(resteMoins100);
@@ -708,16 +850,32 @@ function renderDashboard(triggerGemini = true) {
   tagExtras.textContent = `${formatCurrency(totalExtras)} / 25 € mi-mois`;
   tagExtras.className = `col-limit-tag ${extrasMidOk ? "" : "over"}`;
 
-  // Gains strip
+  // Inflows / Reimbursements strip
   const gainsCard = $("gains-card");
   if (gainItems.length > 0) {
     gainsCard.classList.remove("hidden");
+    const roleLabel = (role) => {
+      if (role === "base") return "200 € parents";
+      if (role === "coloc_reimb") return "✓ Remboursement coloc";
+      return "+ Gain perso";
+    };
+    const roleClass = (role) => {
+      if (role === "base") return "is-base";
+      if (role === "coloc_reimb") return "is-coloc-reimb";
+      return "";
+    };
+    const nextRole = (role) => {
+      if (role === "extra") return "coloc_reimb";
+      if (role === "coloc_reimb") return "base";
+      return "extra";
+    };
+
     $("gains-list").innerHTML = gainItems
       .map(
-        ({ tx, isBase }) => `
-        <button type="button" class="gain-pill ${isBase ? "is-base" : ""}" data-gain-id="${escapeHtml(tx.id)}">
+        ({ tx, role }) => `
+        <button type="button" class="gain-pill ${roleClass(role)}" data-gain-id="${escapeHtml(tx.id)}" data-role="${role}" title="Cliquer pour changer le type d'entrée">
           <span>+${escapeHtml(formatCurrency(tx.amount))} · ${escapeHtml(cleanDisplayLabel(tx.label))}</span>
-          <span>(${isBase ? "200 € parents" : "+ Gain ajouté"})</span>
+          <span>(${roleLabel(role)})</span>
         </button>
       `
       )
@@ -725,8 +883,8 @@ function renderDashboard(triggerGemini = true) {
     $("gains-list").querySelectorAll("[data-gain-id]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = btn.getAttribute("data-gain-id");
-        const currentIsBase = btn.classList.contains("is-base");
-        state.gainOverrides[id] = currentIsBase ? "extra" : "base";
+        const curRole = btn.getAttribute("data-role") || "extra";
+        state.gainOverrides[id] = nextRole(curRole);
         saveJsonStorage(STORAGE_KEYS.gainOverrides, state.gainOverrides);
         renderDashboard(false);
       });
@@ -735,10 +893,11 @@ function renderDashboard(triggerGemini = true) {
     gainsCard.classList.add("hidden");
   }
 
-  // Render the 3 columns
+  // Render the 4 columns
   $("total-alimentaire").textContent = formatCurrency(totalAlim);
   $("total-bars").textContent = formatCurrency(totalBars);
   $("total-extras").textContent = formatCurrency(totalExtras);
+  $("total-coloc").textContent = formatCurrency(totalColocAdvanced);
 
   const renderColList = (listId, arr, bucketKey) => {
     const ul = $(listId);
@@ -752,9 +911,10 @@ function renderDashboard(triggerGemini = true) {
   renderColList("list-alimentaire", buckets.alimentaire, BUCKETS.ALIMENTAIRE);
   renderColList("list-bars", buckets.bars, BUCKETS.BARS);
   renderColList("list-extras", buckets.extras, BUCKETS.EXTRAS);
+  renderColList("list-coloc", buckets.coloc, BUCKETS.COLOC);
 
   // Mobile column visibility filter
-  [BUCKETS.ALIMENTAIRE, BUCKETS.BARS, BUCKETS.EXTRAS].forEach((b) => {
+  [BUCKETS.ALIMENTAIRE, BUCKETS.BARS, BUCKETS.EXTRAS, BUCKETS.COLOC].forEach((b) => {
     const colEl = $(`col-${b}`);
     const hideOnMobile = state.mobileColFilter !== "all" && state.mobileColFilter !== b;
     colEl.classList.toggle("hidden", hideOnMobile);
@@ -814,6 +974,7 @@ function sendMidMonthMailto() {
   let alim = 0;
   let bars = 0;
   let extras = 0;
+  const colocTxs = [];
   const inflows = [];
 
   for (const tx of monthTxs) {
@@ -821,10 +982,11 @@ function sendMidMonthMailto() {
     if (b === BUCKETS.ALIMENTAIRE) alim += Math.abs(tx.amount);
     else if (b === BUCKETS.BARS) bars += Math.abs(tx.amount);
     else if (b === BUCKETS.EXTRAS) extras += Math.abs(tx.amount);
+    else if (b === BUCKETS.COLOC) colocTxs.push(tx);
     else if (b === BUCKETS.GAIN) inflows.push(tx);
   }
 
-  const { extraGains } = computeGains(inflows);
+  const { colocOwed, extraGains } = analyzeInflowsAndColocDebt(inflows, colocTxs);
   const reste1 = MONTHLY_BASE_ALLOWANCE - FIXED_CHARGES_TOTAL + extraGains - (alim + bars + extras);
   const reste2 = reste1 - FOOD_PROVISION;
   const alimOk = alim <= MID_MONTH_LIMIT_ALIM;
@@ -842,7 +1004,8 @@ function sendMidMonthMailto() {
     `Voici ton point dépenses de moitié de mois (${formatMonthTitle(state.selectedYm)}) :\n\n` +
     `• Dépenses alimentaires : ${formatCurrency(alim)} / 50,00 € -> ${alimOk ? "OK" : "DÉPASSÉ"}\n` +
     `• Extras : ${formatCurrency(extras)} / 25,00 € -> ${extrasOk ? "OK" : "DÉPASSÉ"}\n` +
-    `• Bars : ${formatCurrency(bars)}\n\n` +
+    `• Bars : ${formatCurrency(bars)}\n` +
+    `• Les colocs me doivent : ${formatCurrency(colocOwed)}\n\n` +
     `• Reste sans les abonnements et les dépenses : ${formatCurrency(reste1)}\n` +
     `• Ce qu'il reste moins 100 € (nourriture prévue) : ${formatCurrency(reste2)}\n`;
 
@@ -871,7 +1034,7 @@ function buildDemoData() {
       { id: "d2", account_id: "demo-cc", date: `${ym}-03`, label: "CB APPLE.COM/BILL", raw: "APPLE.COM/BILL", amount: -4.0, coming: false, category: "abonnement" },
       { id: "d3", account_id: "demo-cc", date: `${ym}-04`, label: "PRLV VELIB METROPOLE", raw: "VELIB", amount: -17.74, coming: false, category: "abonnement" },
       { id: "d4", account_id: "demo-cc", date: `${ym}-06`, label: "CB CARREFOUR CITY", raw: "CARREFOUR CITY", amount: -18.4, coming: false, category: "alimentaire" },
-      { id: "d5", account_id: "demo-cc", date: `${ym}-08`, label: "CB BOULANGERIE PAUL", raw: "PAUL", amount: -6.5, coming: false, category: "alimentaire" },
+      { id: "d5", account_id: "demo-cc", date: `${ym}-08`, label: "CB DELICES PASTEUR PARIS", raw: "DELICES PASTEUR PARIS", amount: -24.5, coming: false, category: "coloc" },
       { id: "d6", account_id: "demo-cc", date: `${ym}-10`, label: "CB LE COMPTOIR DU BAR", raw: "LE COMPTOIR DU BAR", amount: -14.0, coming: false, category: "bars" },
       { id: "d7", account_id: "demo-cc", date: `${ym}-12`, label: "CB FNAC PARIS", raw: "FNAC", amount: -15.9, coming: false, category: "extras" },
     ],
@@ -959,7 +1122,7 @@ async function handleRefreshClick() {
     const envelope = await fetchJsonNoCache("./data.enc");
     state.data = await decryptEnvelope(envelope, state.password);
     renderDashboard();
-    showToast("Comptes actualisés");
+    showToast("Compte Courant actualisé");
   } catch (err) {
     showToast(`Erreur : ${err.message}`);
   } finally {

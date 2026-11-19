@@ -417,7 +417,7 @@ body {
   position: sticky;
   top: calc(12px + env(safe-area-inset-top, 0px));
   z-index: 50;
-  max-width: 1080px;
+  max-width: 1240px;
   margin: 12px auto 0;
   padding: 0 18px;
 }
@@ -488,12 +488,58 @@ body {
 }
 
 .os-content {
-  max-width: 1080px;
+  max-width: 1240px;
   margin: 18px auto 0;
   padding: 0 18px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+/* Top Banner : Les colocs me doivent */
+.coloc-top-banner {
+  padding: 20px 26px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.88) 0%, rgba(240, 247, 255, 0.76) 100%);
+}
+
+.coloc-eyebrow {
+  color: var(--ios-blue);
+  margin-bottom: 4px;
+}
+
+.coloc-amount-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.coloc-top-amount {
+  font-size: clamp(1.85rem, 3.5vw, 2.55rem);
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.08;
+  color: var(--text-primary);
+}
+
+.coloc-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 11px;
+  border-radius: var(--radius-pill);
+  font-size: 0.76rem;
+  font-weight: 600;
+  background: rgba(0, 122, 255, 0.12);
+  color: var(--ios-blue);
+}
+
+.coloc-badge.reimbursed {
+  background: rgba(48, 209, 88, 0.16);
+  color: var(--ios-green-text);
 }
 
 /* Alert Sheet */
@@ -756,6 +802,11 @@ body {
   color: var(--text-secondary);
 }
 
+.gain-pill.is-coloc-reimb {
+  border-color: rgba(0, 122, 255, 0.35);
+  color: var(--ios-blue);
+}
+
 /* iOS 27 Segmented Control (Mobile first, hidden on wide macOS desktop) */
 .ios-segmented-control {
   display: none;
@@ -788,12 +839,17 @@ body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
-/* SECTION 3 : 3 Columns Grid */
-.three-columns-grid {
+/* SECTION 3 : 4 Columns Grid */
+.four-columns-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 15px;
   align-items: start;
+}
+
+.coloc-tag {
+  background: rgba(0, 122, 255, 0.12);
+  color: var(--ios-blue);
 }
 
 .expense-column {
@@ -1086,6 +1142,12 @@ body {
   justify-content: flex-end;
 }
 
+@media (max-width: 1080px) and (min-width: 769px) {
+  .four-columns-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 /* iOS 27 Responsive (iPhone adaptation) */
 @media (max-width: 768px) {
   .macos-dots {
@@ -1114,6 +1176,17 @@ body {
     gap: 13px;
   }
 
+  .coloc-top-banner {
+    padding: 18px 18px;
+    border-radius: 26px;
+    text-align: center;
+    justify-content: center;
+  }
+
+  .coloc-amount-row {
+    justify-content: center;
+  }
+
   .hero-card {
     padding: 22px 18px;
     border-radius: 26px;
@@ -1133,7 +1206,7 @@ body {
     display: flex;
   }
 
-  .three-columns-grid {
+  .four-columns-grid {
     grid-template-columns: 1fr;
     gap: 13px;
   }

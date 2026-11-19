@@ -7,11 +7,14 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="referrer" content="no-referrer" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://api.github.com https://generativelanguage.googleapis.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self';" />
   <title>Compte Courant</title>
-  <link rel="icon" type="image/svg+xml" href="./icon.svg" />
-  <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="stylesheet" href="./styles.css" />
+  <link rel="icon" type="image/svg+xml" href="./icon.svg?v=20261119-5" />
+  <link rel="manifest" href="./manifest.webmanifest?v=20261119-5" />
+  <link rel="stylesheet" href="./styles.css?v=20261119-5" />
 </head>
 <body>
   <div class="ambient-bg" aria-hidden="true">
@@ -81,7 +84,7 @@
     </div>
   </section>
 
-  <!-- Interface principale ultra-épurée (macOS 27 sur Mac / iOS 27 sur iPhone) -->
+  <!-- Interface principale ultra-épurée : Compte Courant uniquement (macOS 27 / iOS 27) -->
   <div id="dashboard-screen" class="os-shell hidden">
     <!-- Barre flottante macOS 27 / iOS 27 Liquid Glass -->
     <header class="os-topbar">
@@ -94,7 +97,7 @@
           </div>
           <div class="sync-live-indicator">
             <span class="status-dot" id="sync-dot"></span>
-            <span id="sync-status-text" class="sync-label">En direct</span>
+            <span id="sync-status-text" class="sync-label">Compte Courant</span>
             <span id="demo-badge" class="pill-tag warn hidden">Démo</span>
           </div>
         </div>
@@ -110,7 +113,7 @@
             <span class="sparkle-icon">✦</span>
             <span class="btn-text" id="ai-badge-text">Gemini Pro</span>
           </button>
-          <button type="button" id="refresh-btn" class="icon-circle-btn" title="Actualiser les comptes" aria-label="Actualiser">
+          <button type="button" id="refresh-btn" class="icon-circle-btn" title="Actualiser le Compte Courant" aria-label="Actualiser">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 12a9 9 0 1 1-2.64-6.36" />
               <polyline points="21 3 21 9 15 9" />
@@ -139,6 +142,20 @@
         </div>
       </div>
 
+      <!-- EN HAUT : Les colocs me doivent (somme DELICES PASTEUR PARIS / Pour la coloc) -->
+      <section class="glass-card coloc-top-banner" aria-labelledby="title-coloc-top">
+        <div class="coloc-banner-left">
+          <span class="section-eyebrow coloc-eyebrow" id="title-coloc-top">Les colocs me doivent</span>
+          <div class="coloc-amount-row">
+            <strong class="coloc-top-amount" id="val-colocs-owed">0,00 €</strong>
+            <span id="coloc-status-badge" class="coloc-badge">À rembourser</span>
+          </div>
+          <p class="hero-formula" id="sub-colocs-owed">
+            Somme des dépenses avancées dans « Pour la coloc » (DELICES PASTEUR PARIS)
+          </p>
+        </div>
+      </section>
+
       <!-- SECTION 1 : Reste sans les abonnements et les dépenses -->
       <section class="glass-card hero-card primary-hero" aria-labelledby="title-sec-1">
         <span class="section-eyebrow" id="title-sec-1">Reste sans les abonnements et les dépenses</span>
@@ -152,7 +169,7 @@
             <span>Abonnements &amp; charges fixes : 60,23 €</span>
             <span id="subs-chevron">▾</span>
           </button>
-          <span id="bank-balance-pill" class="micro-pill muted-pill">Solde bancaire : —</span>
+          <span id="bank-balance-pill" class="micro-pill muted-pill">Solde Compte Courant : —</span>
         </div>
 
         <div id="subs-drawer" class="subs-drawer hidden">
@@ -188,7 +205,7 @@
         </div>
       </section>
 
-      <!-- Barre discrète : Bilan mi-mois (15 du mois -> joseph@decacqueray) & Gains éventuels -->
+      <!-- Barre discrète : Bilan mi-mois (15 du mois -> joseph@decacqueray) & Entrées/Remboursements -->
       <section class="status-strip">
         <div class="glass-card strip-card" id="midmonth-card">
           <div class="strip-left">
@@ -207,24 +224,25 @@
           <div class="strip-left">
             <span class="gain-badge">+</span>
             <div>
-              <strong id="gains-title" class="strip-title">Entrées sur le compte ce mois-ci</strong>
-              <p id="gains-desc" class="strip-sub">Clique sur une entrée pour indiquer s'il s'agit des 200 € parents ou d'un gain en plus.</p>
+              <strong id="gains-title" class="strip-title">Entrées reçues sur le Compte Courant</strong>
+              <p id="gains-desc" class="strip-sub">Si tu reçois la somme exacte due par les colocs, elle est comptée automatiquement en remboursement coloc.</p>
             </div>
           </div>
           <div id="gains-list" class="gains-pills"></div>
         </div>
       </section>
 
-      <!-- Sélecteur segmenté iOS 27 (visible sur iPhone pour basculer ou tout voir) -->
+      <!-- Sélecteur segmenté iOS 27 (visible sur iPhone) -->
       <div class="ios-segmented-control" role="tablist" aria-label="Sections de dépenses">
-        <button type="button" class="seg-btn active" data-col-filter="all">Les 3 colonnes</button>
+        <button type="button" class="seg-btn active" data-col-filter="all">Tout</button>
         <button type="button" class="seg-btn" data-col-filter="alimentaire">Alimentaire</button>
         <button type="button" class="seg-btn" data-col-filter="bars">Bars</button>
         <button type="button" class="seg-btn" data-col-filter="extras">Extras</button>
+        <button type="button" class="seg-btn" data-col-filter="coloc">Coloc</button>
       </div>
 
-      <!-- SECTION 3 : Les 3 Colonnes classées par l'IA -->
-      <section class="three-columns-grid" aria-label="Classement des dépenses par l'IA">
+      <!-- SECTION 3 : Les 4 Colonnes classées par l'IA -->
+      <section class="four-columns-grid" aria-label="Classement des dépenses par l'IA">
         <!-- Colonne 1 : Dépenses alimentaires -->
         <article class="glass-card expense-column" data-bucket="alimentaire" id="col-alimentaire">
           <header class="col-header">
@@ -260,9 +278,21 @@
           </header>
           <ul class="expense-list" id="list-extras"></ul>
         </article>
+
+        <!-- Colonne 4 : Pour la coloc (DELICES PASTEUR PARIS) -->
+        <article class="glass-card expense-column coloc-column" data-bucket="coloc" id="col-coloc">
+          <header class="col-header">
+            <div class="col-title-row">
+              <h2>Pour la coloc</h2>
+              <span class="col-limit-tag coloc-tag" id="tag-coloc-col">Avancé (→ 0 €)</span>
+            </div>
+            <div class="col-total" id="total-coloc">0,00 €</div>
+          </header>
+          <ul class="expense-list" id="list-coloc"></ul>
+        </article>
       </section>
 
-      <!-- Tiroir discret des opérations reconnues comme abonnements fixes (pour éviter le double comptage) -->
+      <!-- Tiroir discret des opérations reconnues comme abonnements fixes -->
       <section id="detected-subs-section" class="detected-subs-bar hidden">
         <button type="button" id="toggle-detected-subs" class="micro-pill">
           <span id="detected-subs-label">Opérations rattachées aux 60,23 € d'abonnements fixes (0)</span>
@@ -285,7 +315,7 @@
       </div>
 
       <p class="modal-help">
-        Lorsque tu déplaces une dépense entre <strong>Dépenses alimentaires</strong>, <strong>Bars</strong> et <strong>Extras</strong>, l'IA mémorise immédiatement le commerçant.
+        Lorsque tu déplaces une dépense entre <strong>Dépenses alimentaires</strong>, <strong>Bars</strong>, <strong>Extras</strong> et <strong>Pour la coloc</strong>, l'IA mémorise immédiatement le commerçant.
       </p>
 
       <label class="field-lbl" for="cfg-gemini-key">Clé API Gemini Pro (optionnelle dans le navigateur)</label>
@@ -314,6 +344,6 @@
     </form>
   </dialog>
 
-  <script src="./app.js"></script>
+  <script src="./app.js?v=20261119-5"></script>
 </body>
 </html>
