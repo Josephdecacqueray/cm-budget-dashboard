@@ -525,15 +525,43 @@ async function fetchJsonNoCache(url) {
 }
 
 function isSavingsAccountLabel(label) {
-  return /livret|epargne|épargne|ldd|pel|cel|pea|assurance|toni/i.test(String(label || ""));
+  return /livret|epargne|épargne|ldd|pel|cel|pea|assurance|toni|jeune|bleu|sup|fidelite|capital|duo|pep|terme/i.test(
+    String(label || "")
+  );
 }
 
 function getCheckingAccounts() {
   const accounts = state.data?.accounts || [];
-  const checking = accounts.filter((a) => a.group === "checking" && !isSavingsAccountLabel(a.label));
-  if (checking.length) return checking;
-  const fallback = accounts.filter((a) => !isSavingsAccountLabel(a.label));
-  return fallback.length ? fallback.slice(0, 1) : accounts.slice(0, 1);
+  if (!accounts.length) return [];
+
+  const txs = state.data?.transactions || [];
+  const cardTxCountByAcc = new Map();
+  const totalTxCountByAcc = new Map();
+  for (const tx of txs) {
+    const id = tx.account_id;
+    totalTxCountByAcc.set(id, (totalTxCountByAcc.get(id) || 0) + 1);
+    if (tx.type === "card" || /^(cb|paiement|prlv)\b/i.test(String(tx.label || ""))) {
+      cardTxCountByAcc.set(id, (cardTxCountByAcc.get(id) || 0) + 1);
+    }
+  }
+
+  const scoreAccount = (acc) => {
+    let score = 0;
+    const lbl = String(acc.label || "");
+    if (isSavingsAccountLabel(lbl) || acc.group === "savings" || acc.group === "investment") {
+      score -= 1000;
+    }
+    if (acc.group === "checking") score += 100;
+    if (/c\/c|compte courant|cpte courant|eurocompte|compte cheque|chèque/i.test(lbl)) {
+      score += 250;
+    }
+    score += (cardTxCountByAcc.get(acc.id) || 0) * 20;
+    score += (totalTxCountByAcc.get(acc.id) || 0) * 2;
+    return score;
+  };
+
+  const ranked = [...accounts].sort((a, b) => scoreAccount(b) - scoreAccount(a));
+  return [ranked[0]];
 }
 
 function getMonthCheckingTransactions(ym) {
@@ -738,10 +766,13 @@ function renderDashboard(triggerGemini = true) {
   $("alert-gh-link").href = `https://github.com/${encodeURIComponent(state.ghConfig.owner)}/${encodeURIComponent(state.ghConfig.syncRepo)}/actions`;
   $("trigger-2fa-btn").classList.toggle("hidden", !state.ghConfig.pat);
 
-  // Strict Compte Courant balance ONLY (never savings)
-  const checkingAccs = getCheckingAccounts();
-  const bankBalance = checkingAccs.reduce((s, a) => s + (a.balance || 0), 0);
-  $("bank-balance-pill").textContent = `Solde Compte Courant : ${formatCurrency(bankBalance)}`;
+  // Strict single Compte Courant balance ONLY (never summed with savings or other accounts)
+  const [primaryCheckingAcc] = getCheckingAccounts();
+  const bankBalance = primaryCheckingAcc ? primaryCheckingAcc.balance || 0 : 0;
+  $("bank-balance-pill").textContent = formatCurrency(bankBalance);
+  $("checking-acc-label").textContent = primaryCheckingAcc?.label
+    ? `Solde du Compte Courant (${primaryCheckingAcc.label})`
+    : "Solde du Compte Courant";
 
   // Filter current month checking transactions
   const monthTxs = getMonthCheckingTransactions(state.selectedYm);

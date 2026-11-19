@@ -496,13 +496,40 @@ body {
   gap: 16px;
 }
 
-/* Top Banner : Les colocs me doivent */
+/* Top Duo Grid : Solde du Compte Courant & Les colocs me doivent */
+.top-duo-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 16px;
+}
+
 .coloc-top-banner {
   padding: 20px 26px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.88) 0%, rgba(240, 247, 255, 0.76) 100%);
+}
+
+.checking-only-banner {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.74) 100%);
+}
+
+.account-picker-wrap {
+  margin-top: 6px;
+}
+
+.account-select-pill {
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.75);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 0.76rem;
+  font-weight: 500;
+  outline: none;
+  cursor: pointer;
 }
 
 .coloc-eyebrow {
@@ -1173,6 +1200,11 @@ body {
 
   .os-content {
     padding: 0 12px;
+    gap: 13px;
+  }
+
+  .top-duo-grid {
+    grid-template-columns: 1fr;
     gap: 13px;
   }
 

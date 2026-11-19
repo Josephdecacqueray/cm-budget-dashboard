@@ -12,9 +12,9 @@
   <meta http-equiv="Expires" content="0" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://api.github.com https://generativelanguage.googleapis.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self';" />
   <title>Compte Courant</title>
-  <link rel="icon" type="image/svg+xml" href="./icon.svg?v=20261119-5" />
-  <link rel="manifest" href="./manifest.webmanifest?v=20261119-5" />
-  <link rel="stylesheet" href="./styles.css?v=20261119-5" />
+  <link rel="icon" type="image/svg+xml" href="./icon.svg?v=20261119-6" />
+  <link rel="manifest" href="./manifest.webmanifest?v=20261119-6" />
+  <link rel="stylesheet" href="./styles.css?v=20261119-6" />
 </head>
 <body>
   <div class="ambient-bg" aria-hidden="true">
@@ -142,18 +142,32 @@
         </div>
       </div>
 
-      <!-- EN HAUT : Les colocs me doivent (somme DELICES PASTEUR PARIS / Pour la coloc) -->
-      <section class="glass-card coloc-top-banner" aria-labelledby="title-coloc-top">
-        <div class="coloc-banner-left">
-          <span class="section-eyebrow coloc-eyebrow" id="title-coloc-top">Les colocs me doivent</span>
-          <div class="coloc-amount-row">
-            <strong class="coloc-top-amount" id="val-colocs-owed">0,00 €</strong>
-            <span id="coloc-status-badge" class="coloc-badge">À rembourser</span>
+      <!-- EN HAUT : Solde du Compte Courant (unique) & Les colocs me doivent -->
+      <section class="top-duo-grid" aria-label="Solde du compte courant et avances colocs">
+        <article class="glass-card coloc-top-banner checking-only-banner">
+          <div class="coloc-banner-left">
+            <span class="section-eyebrow" id="checking-acc-label">Solde du Compte Courant</span>
+            <div class="coloc-amount-row">
+              <strong class="coloc-top-amount" id="bank-balance-pill">—</strong>
+            </div>
+            <div class="account-picker-wrap">
+              <select id="checking-account-select" class="account-select-pill hidden" aria-label="Choisir le compte courant"></select>
+            </div>
           </div>
-          <p class="hero-formula" id="sub-colocs-owed">
-            Somme des dépenses avancées dans « Pour la coloc » (DELICES PASTEUR PARIS)
-          </p>
-        </div>
+        </article>
+
+        <article class="glass-card coloc-top-banner" aria-labelledby="title-coloc-top">
+          <div class="coloc-banner-left">
+            <span class="section-eyebrow coloc-eyebrow" id="title-coloc-top">Les colocs me doivent</span>
+            <div class="coloc-amount-row">
+              <strong class="coloc-top-amount" id="val-colocs-owed">0,00 €</strong>
+              <span id="coloc-status-badge" class="coloc-badge">À rembourser</span>
+            </div>
+            <p class="hero-formula" id="sub-colocs-owed">
+              Somme des dépenses avancées dans « Pour la coloc » (DELICES PASTEUR PARIS)
+            </p>
+          </div>
+        </article>
       </section>
 
       <!-- SECTION 1 : Reste sans les abonnements et les dépenses -->
@@ -169,7 +183,6 @@
             <span>Abonnements &amp; charges fixes : 60,23 €</span>
             <span id="subs-chevron">▾</span>
           </button>
-          <span id="bank-balance-pill" class="micro-pill muted-pill">Solde Compte Courant : —</span>
         </div>
 
         <div id="subs-drawer" class="subs-drawer hidden">
@@ -344,6 +357,6 @@
     </form>
   </dialog>
 
-  <script src="./app.js?v=20261119-5"></script>
+  <script src="./app.js?v=20261119-6"></script>
 </body>
 </html>
