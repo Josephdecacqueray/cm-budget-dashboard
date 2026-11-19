@@ -845,18 +845,25 @@ function renderDashboard(triggerGemini = true) {
   $("sub-reste-principal").textContent = `200,00 € − 60,23 € d'abonnements − ${formatCurrency(totalPersonalVariable)} dépensés${gainPart}`;
 
   // SECTION 2 : Ce qu'il reste moins 100 € (budget nourriture prévu)
-  const resteMoins100 = Math.round((resteSansAbonnements - FOOD_PROVISION) * 100) / 100;
-  const foodEnvelopeLeft = Math.round(Math.max(0, FOOD_PROVISION - totalAlim) * 100) / 100;
-  const libreHorsNourriture = Math.round(
-    (MONTHLY_BASE_ALLOWANCE - FIXED_CHARGES_TOTAL - FOOD_PROVISION + extraGains - totalBars - totalExtras - Math.max(0, totalAlim - FOOD_PROVISION)) * 100
+  // Food expenses (up to 100 €) come out of the 100 € food provision, NOT deducted twice from Section 2!
+  const foodCovered = Math.max(FOOD_PROVISION, totalAlim);
+  const foodEnvelopeLeft = Math.round((FOOD_PROVISION - totalAlim) * 100) / 100;
+  const resteMoins100 = Math.round(
+    (MONTHLY_BASE_ALLOWANCE - FIXED_CHARGES_TOTAL + extraGains - foodCovered - totalBars - totalExtras) * 100
   ) / 100;
 
   const elReste2 = $("val-reste-moins-100");
   elReste2.textContent = formatCurrency(resteMoins100);
   elReste2.className = `hero-amount secondary-amount ${resteMoins100 >= 0 ? "positive-val" : "negative-val"}`;
-  $("sub-reste-moins-100").textContent = `Reste libre hors les 100 € de nourriture : ${formatCurrency(libreHorsNourriture)}`;
+  $("sub-reste-moins-100").textContent =
+    totalAlim <= FOOD_PROVISION
+      ? `Les dépenses alimentaires (${formatCurrency(totalAlim)}) sont prises sur les 100,00 € prévus`
+      : `Budget nourriture de 100,00 € dépassé de ${formatCurrency(totalAlim - FOOD_PROVISION)}`;
 
-  $("val-food-envelope-left").textContent = `${formatCurrency(foodEnvelopeLeft)} restants sur 100 €`;
+  $("val-food-envelope-left").textContent =
+    foodEnvelopeLeft >= 0
+      ? `${formatCurrency(foodEnvelopeLeft)} restants sur 100 €`
+      : `Dépassé de ${formatCurrency(Math.abs(foodEnvelopeLeft))}`;
   const foodPct = Math.min(100, Math.round((totalAlim / FOOD_PROVISION) * 100));
   const barEl = $("food-progress-bar");
   barEl.style.width = `${foodPct}%`;
@@ -1019,7 +1026,7 @@ function sendMidMonthMailto() {
 
   const { colocOwed, extraGains } = analyzeInflowsAndColocDebt(inflows, colocTxs);
   const reste1 = MONTHLY_BASE_ALLOWANCE - FIXED_CHARGES_TOTAL + extraGains - (alim + bars + extras);
-  const reste2 = reste1 - FOOD_PROVISION;
+  const reste2 = MONTHLY_BASE_ALLOWANCE - FIXED_CHARGES_TOTAL + extraGains - Math.max(FOOD_PROVISION, alim) - bars - extras;
   const alimOk = alim <= MID_MONTH_LIMIT_ALIM;
   const extrasOk = extras <= MID_MONTH_LIMIT_EXTRAS;
   const allOk = alimOk && extrasOk;
