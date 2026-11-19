@@ -2,7 +2,7 @@
 
 const MONTHLY_BASE_ALLOWANCE = 200.0;
 const FIXED_CHARGES_TOTAL = 60.23; // 4 + 3 + 5.49 + 17.74 + 10 + 10 + 10
-const FOOD_PROVISION = 100.0;
+const FOOD_PROVISION = 120.0;
 const MID_MONTH_LIMIT_ALIM = 50.0;
 const MID_MONTH_LIMIT_EXTRAS = 25.0;
 
@@ -855,26 +855,19 @@ function renderDashboard(triggerGemini = true) {
   const gainPart = extraGains > 0 ? ` + ${formatCurrency(extraGains)} de gains` : "";
   $("sub-reste-principal").textContent = `200,00 € − 60,23 € d'abonnements − ${formatCurrency(totalPersonalVariable)} dépensés${gainPart}`;
 
-  // SECTION 2 : Ce qu'il reste moins 100 € (budget nourriture prévu)
-  // Food expenses (up to 100 €) come out of the 100 € food provision, NOT deducted twice from Section 2!
-  const foodCovered = Math.max(FOOD_PROVISION, totalAlim);
-  const foodEnvelopeLeft = Math.round((FOOD_PROVISION - totalAlim) * 100) / 100;
-  const resteMoins100 = Math.round(
-    (MONTHLY_BASE_ALLOWANCE - FIXED_CHARGES_TOTAL + extraGains - foodCovered - totalBars - totalExtras) * 100
+  // SECTION 2 : Reste sur les 120 € de nourriture prévus pour tenir le mois
+  // Whenever food is bought (totalAlim), it is subtracted directly from the 120 € food budget!
+  const resteNourriture = Math.round((FOOD_PROVISION - totalAlim) * 100) / 100;
+  const resteHorsNourriture = Math.round(
+    (MONTHLY_BASE_ALLOWANCE - FIXED_CHARGES_TOTAL - FOOD_PROVISION + extraGains - totalBars - totalExtras) * 100
   ) / 100;
 
   const elReste2 = $("val-reste-moins-100");
-  elReste2.textContent = formatCurrency(resteMoins100);
-  elReste2.className = `hero-amount secondary-amount ${resteMoins100 >= 0 ? "positive-val" : "negative-val"}`;
-  $("sub-reste-moins-100").textContent =
-    totalAlim <= FOOD_PROVISION
-      ? `Les dépenses alimentaires (${formatCurrency(totalAlim)}) sont prises sur les 100,00 € prévus`
-      : `Budget nourriture de 100,00 € dépassé de ${formatCurrency(totalAlim - FOOD_PROVISION)}`;
+  elReste2.textContent = formatCurrency(resteNourriture);
+  elReste2.className = `hero-amount secondary-amount ${resteNourriture >= 0 ? "positive-val" : "negative-val"}`;
+  $("sub-reste-moins-100").textContent = `120,00 € prévus − ${formatCurrency(totalAlim)} dépensés en alimentaire`;
 
-  $("val-food-envelope-left").textContent =
-    foodEnvelopeLeft >= 0
-      ? `${formatCurrency(foodEnvelopeLeft)} restants sur 100 €`
-      : `Dépassé de ${formatCurrency(Math.abs(foodEnvelopeLeft))}`;
+  $("val-food-envelope-left").textContent = `${formatCurrency(resteHorsNourriture)} (hors les 120 € de bouffe)`;
   const foodPct = Math.min(100, Math.round((totalAlim / FOOD_PROVISION) * 100));
   const barEl = $("food-progress-bar");
   barEl.style.width = `${foodPct}%`;
@@ -1049,7 +1042,7 @@ function sendMidMonthMailto() {
 
   const { colocOwed, extraGains } = analyzeInflowsAndColocDebt(inflows, colocTxs);
   const reste1 = MONTHLY_BASE_ALLOWANCE - FIXED_CHARGES_TOTAL + extraGains - (alim + bars + extras);
-  const reste2 = MONTHLY_BASE_ALLOWANCE - FIXED_CHARGES_TOTAL + extraGains - Math.max(FOOD_PROVISION, alim) - bars - extras;
+  const resteNourriture = FOOD_PROVISION - alim;
   const alimOk = firstHalfAlim <= MID_MONTH_LIMIT_ALIM;
   const extrasOk = firstHalfExtras <= MID_MONTH_LIMIT_EXTRAS;
   const allOk = alimOk && extrasOk;
@@ -1067,7 +1060,7 @@ function sendMidMonthMailto() {
     `• Extras (1er–15) : ${formatCurrency(firstHalfExtras)} / 25,00 € -> ${extrasOk ? "OK" : "DÉPASSÉ (à compenser)"}\n` +
     `• Les colocs me doivent : ${formatCurrency(colocOwed)}\n\n` +
     `• Reste sans les abonnements et les dépenses : ${formatCurrency(reste1)}\n` +
-    `• Ce qu'il reste moins 100 € (nourriture prévue) : ${formatCurrency(reste2)}\n`;
+    `• Reste sur les 120 € de nourriture pour tenir le mois : ${formatCurrency(resteNourriture)}\n`;
 
   window.location.href = `mailto:${encodeURIComponent(recipient)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
