@@ -22,16 +22,16 @@ const CATEGORIES = [
 ];
 
 const PALETTE = [
-  "#38bdf8",
-  "#fb7185",
-  "#34d399",
-  "#fbbf24",
-  "#a78bfa",
-  "#f472b6",
-  "#22d3ee",
-  "#fb923c",
-  "#60a5fa",
-  "#94a3b8",
+  "#0071e3",
+  "#ff3b30",
+  "#34c759",
+  "#ff9500",
+  "#af52de",
+  "#ff2d55",
+  "#5ac8fa",
+  "#ffcc00",
+  "#5856d6",
+  "#8e8e93",
 ];
 
 const STORAGE_KEYS = {
@@ -556,8 +556,8 @@ function renderMonthlyChart() {
       const y = padT + plotH * (1 - ratio);
       const val = Math.round(maxVal * ratio);
       return `
-        <line x1="${padL}" y1="${y}" x2="${w - padR}" y2="${y}" stroke="rgba(148,163,184,0.14)" stroke-dasharray="3 3" />
-        <text x="${padL - 8}" y="${y + 4}" text-anchor="end" fill="#94a3b8" font-size="10">${val >= 1000 ? `${(val / 1000).toFixed(1)}k` : val}</text>
+        <line x1="${padL}" y1="${y}" x2="${w - padR}" y2="${y}" stroke="rgba(0,0,0,0.07)" stroke-dasharray="3 3" />
+        <text x="${padL - 8}" y="${y + 4}" text-anchor="end" fill="#86868b" font-size="10">${val >= 1000 ? `${(val / 1000).toFixed(1)}k` : val}</text>
       `;
     })
     .join("");
@@ -571,13 +571,13 @@ function renderMonthlyChart() {
       const yExp = padT + plotH - hExp;
       return `
         <g>
-          <rect x="${cx - barW - 2}" y="${yInc}" width="${barW}" height="${Math.max(2, hInc)}" rx="4" fill="#10b981">
+          <rect x="${cx - barW - 2}" y="${yInc}" width="${barW}" height="${Math.max(2, hInc)}" rx="6" fill="#34c759">
             <title>${escapeHtml(m.label)} — Gains : ${escapeHtml(formatCurrency(m.income))}</title>
           </rect>
-          <rect x="${cx + 2}" y="${yExp}" width="${barW}" height="${Math.max(2, hExp)}" rx="4" fill="#fb7185">
+          <rect x="${cx + 2}" y="${yExp}" width="${barW}" height="${Math.max(2, hExp)}" rx="6" fill="#ff3b30">
             <title>${escapeHtml(m.label)} — Dépenses : ${escapeHtml(formatCurrency(m.expense))}</title>
           </rect>
-          <text x="${cx}" y="${h - 10}" text-anchor="middle" fill="#cbd5e1" font-size="11" font-weight="600">${escapeHtml(m.label)}</text>
+          <text x="${cx}" y="${h - 10}" text-anchor="middle" fill="#1d1d1f" font-size="11" font-weight="600">${escapeHtml(m.label)}</text>
         </g>
       `;
     })
@@ -605,7 +605,7 @@ function renderCategoryDonut(periodTxs) {
 
   const entries = [...totals.entries()].sort((a, b) => b[1] - a[1]);
   if (!entries.length) {
-    donut.innerHTML = `<svg viewBox="0 0 160 160"><circle cx="80" cy="80" r="56" fill="none" stroke="rgba(148,163,184,0.18)" stroke-width="22"/><text x="80" y="84" text-anchor="middle" fill="#94a3b8" font-size="12">Aucune dépense</text></svg>`;
+    donut.innerHTML = `<svg viewBox="0 0 160 160"><circle cx="80" cy="80" r="56" fill="none" stroke="rgba(0,0,0,0.08)" stroke-width="22"/><text x="80" y="84" text-anchor="middle" fill="#86868b" font-size="12">Aucune dépense</text></svg>`;
     legend.innerHTML = `<li class="muted-small">Aucune dépense sur cette période.</li>`;
     return;
   }
@@ -633,8 +633,8 @@ function renderCategoryDonut(periodTxs) {
   donut.innerHTML = `
     <svg viewBox="0 0 160 160" role="img" aria-label="Répartition des dépenses">
       ${segments}
-      <text x="80" y="76" text-anchor="middle" fill="#94a3b8" font-size="10">Total</text>
-      <text x="80" y="94" text-anchor="middle" fill="#f1f5f9" font-size="13" font-weight="700">${escapeHtml(formatCurrency(totalExpense))}</text>
+      <text x="80" y="76" text-anchor="middle" fill="#86868b" font-size="10">Total</text>
+      <text x="80" y="94" text-anchor="middle" fill="#1d1d1f" font-size="13" font-weight="600">${escapeHtml(formatCurrency(totalExpense))}</text>
     </svg>
   `;
 
@@ -721,26 +721,26 @@ function renderDailyCumulativeChart() {
       const y = padT + plotH * (1 - r);
       const val = Math.round(maxVal * r);
       return `
-        <line x1="${padL}" y1="${y}" x2="${w - padR}" y2="${y}" stroke="rgba(148,163,184,0.14)" stroke-dasharray="3 3" />
-        <text x="${padL - 8}" y="${y + 4}" text-anchor="end" fill="#94a3b8" font-size="10">${val} €</text>
+        <line x1="${padL}" y1="${y}" x2="${w - padR}" y2="${y}" stroke="rgba(0,0,0,0.07)" stroke-dasharray="3 3" />
+        <text x="${padL - 8}" y="${y + 4}" text-anchor="end" fill="#86868b" font-size="10">${val} €</text>
       `;
     })
     .join("");
 
   const dayTicks = [1, 5, 10, 15, 20, 25, daysInMonth]
-    .map((d) => `<text x="${toX(d)}" y="${h - 8}" text-anchor="middle" fill="#94a3b8" font-size="10">${d}</text>`)
+    .map((d) => `<text x="${toX(d)}" y="${h - 8}" text-anchor="middle" fill="#86868b" font-size="10">${d}</text>`)
     .join("");
 
   container.innerHTML = `
     <svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Cumul du mois en cours">
       ${grid}
       ${dayTicks}
-      <polyline fill="none" stroke="#10b981" stroke-width="2.5" stroke-linejoin="round" points="${poly(cumInc)}" />
-      <polyline fill="none" stroke="#fb7185" stroke-width="2.5" stroke-linejoin="round" points="${poly(cumExp)}" />
-      <circle cx="${toX(maxDay)}" cy="${toY(runInc)}" r="4" fill="#10b981">
+      <polyline fill="none" stroke="#34c759" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${poly(cumInc)}" />
+      <polyline fill="none" stroke="#ff3b30" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${poly(cumExp)}" />
+      <circle cx="${toX(maxDay)}" cy="${toY(runInc)}" r="4.5" fill="#34c759" stroke="#ffffff" stroke-width="2">
         <title>Gains cumulés J${maxDay} : ${escapeHtml(formatCurrency(runInc))}</title>
       </circle>
-      <circle cx="${toX(maxDay)}" cy="${toY(runExp)}" r="4" fill="#fb7185">
+      <circle cx="${toX(maxDay)}" cy="${toY(runExp)}" r="4.5" fill="#ff3b30" stroke="#ffffff" stroke-width="2">
         <title>Dépenses cumulées J${maxDay} : ${escapeHtml(formatCurrency(runExp))}</title>
       </circle>
     </svg>
@@ -932,12 +932,20 @@ async function handleRefreshClick() {
     return;
   }
   const btn = $("refresh-btn");
-  const prevLabel = btn.textContent;
+  const labelEl = btn.querySelector(".btn-label");
+  const prevLabel = labelEl ? labelEl.textContent : btn.textContent;
+  const setLabel = (txt) => {
+    if (labelEl) {
+      labelEl.textContent = txt;
+    } else {
+      btn.textContent = txt;
+    }
+  };
   btn.disabled = true;
 
   try {
     if (state.ghConfig.pat) {
-      btn.textContent = "⏳ Synchro cloud…";
+      setLabel("Synchro cloud…");
       const oldGen = state.data?.generated_at;
       await triggerCloudSync("schedule");
       for (let i = 0; i < 18; i += 1) {
@@ -951,14 +959,14 @@ async function handleRefreshClick() {
         }
       }
     }
-    btn.textContent = "↻ Rechargement…";
+    setLabel("Rechargement…");
     const envelope = await fetchJsonNoCache("./data.enc");
     state.data = await decryptEnvelope(envelope, state.password);
     renderDashboard();
   } catch (err) {
     alert(`Erreur lors de l'actualisation : ${err.message}`);
   } finally {
-    btn.textContent = prevLabel;
+    setLabel(prevLabel);
     btn.disabled = false;
   }
 }
